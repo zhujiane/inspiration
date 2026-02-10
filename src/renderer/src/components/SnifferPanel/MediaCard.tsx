@@ -56,7 +56,7 @@ export default function MediaCard({
             className={`media-card ${resource.selected ? 'media-card--selected' : ''}`}
             id={`media-card-${resource.id}`}
         >
-            {/* 4.4 Top — Checkbox (left) + Delete (right) */}
+            {/* 4.4 Top — Checkbox only (always visible) */}
             <div className="media-card__top-controls">
                 <input
                     type="checkbox"
@@ -66,18 +66,6 @@ export default function MediaCard({
                     onClick={(e) => e.stopPropagation()}
                     aria-label={`选择 ${resource.title}`}
                 />
-                <Tooltip title="删除" mouseEnterDelay={0.5}>
-                    <button
-                        className="media-card__delete-btn"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onDelete?.(resource.id)
-                        }}
-                        aria-label={`删除 ${resource.title}`}
-                    >
-                        <DeleteOutlined />
-                    </button>
-                </Tooltip>
             </div>
 
             {/* 4.2 Thumbnail */}
@@ -113,7 +101,7 @@ export default function MediaCard({
                 </div>
             </div>
 
-            {/* 4.3 Bottom Actions */}
+            {/* 4.3 Bottom Actions — includes delete */}
             <div className="media-card__actions">
                 <Tooltip title="预览" mouseEnterDelay={0.5}>
                     <button
@@ -140,6 +128,18 @@ export default function MediaCard({
                         aria-label="复制链接"
                     >
                         <CopyOutlined />
+                    </button>
+                </Tooltip>
+                <Tooltip title="删除" mouseEnterDelay={0.5}>
+                    <button
+                        className="media-card__action-btn media-card__action-btn--danger"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onDelete?.(resource.id)
+                        }}
+                        aria-label={`删除 ${resource.title}`}
+                    >
+                        <DeleteOutlined />
                     </button>
                 </Tooltip>
             </div>

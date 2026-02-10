@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Dropdown, Tooltip } from 'antd'
 import type { MenuProps } from 'antd'
 import {
@@ -77,6 +77,9 @@ export default function TitleBar({
     canGoForward = false
 }: TitleBarProps): React.JSX.Element {
     const [searchFocused, setSearchFocused] = useState(false)
+    const tabsScrollRef = useRef<HTMLDivElement>(null)
+    const [showLeftArrow, setShowLeftArrow] = useState(false)
+    const [showRightArrow, setShowRightArrow] = useState(false)
 
     const tabDropdownItems: MenuProps['items'] = [
         { key: 'closeAll', label: '关闭所有' },
@@ -96,28 +99,48 @@ export default function TitleBar({
         }
     }
 
+    // Check if tab scroll arrows should be visible
+    const checkScrollArrows = useCallback(() => {
+        const el = tabsScrollRef.current
+        if (!el) return
+        setShowLeftArrow(el.scrollLeft > 0)
+        setShowRightArrow(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    }, [])
+
+    useEffect(() => {
+        checkScrollArrows()
+        const el = tabsScrollRef.current
+        if (!el) return
+        el.addEventListener('scroll', checkScrollArrows)
+        const ro = new ResizeObserver(checkScrollArrows)
+        ro.observe(el)
+        return () => {
+            el.removeEventListener('scroll', checkScrollArrows)
+            ro.disconnect()
+        }
+    }, [checkScrollArrows, tabs])
+
+    // Mouse wheel → horizontal scroll on tabs
+    const handleTabsWheel = (e: React.WheelEvent): void => {
+        const el = tabsScrollRef.current
+        if (!el) return
+        e.preventDefault()
+        el.scrollLeft += e.deltaY || e.deltaX
+    }
+
+    const scrollTabsLeft = (): void => {
+        const el = tabsScrollRef.current
+        if (el) el.scrollBy({ left: -120, behavior: 'smooth' })
+    }
+
+    const scrollTabsRight = (): void => {
+        const el = tabsScrollRef.current
+        if (el) el.scrollBy({ left: 120, behavior: 'smooth' })
+    }
+
     return (
         <header className="title-bar" id="title-bar">
-            {/* 1.1 Brand */}
-            <div className="title-bar__brand">
-                <div
-                    className="title-bar__brand-icon"
-                    style={{
-                        background: 'linear-gradient(135deg, #1677ff, #4096ff)',
-                        borderRadius: 4,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}
-                >
-                    <AppstoreOutlined style={{ color: '#fff', fontSize: 12 }} />
-                </div>
-                <span className="title-bar__brand-name">Inspiration</span>
-            </div>
-
-            <div className="title-bar__divider" />
-
-            {/* 1.2 Navigation */}
+            {/* 1.2 Navigation — aligned with webview */}
             <nav className="title-bar__nav" aria-label="浏览器导航">
                 <Tooltip title="后退" mouseEnterDelay={0.5}>
                     <button
@@ -151,37 +174,52 @@ export default function TitleBar({
 
             <div className="title-bar__divider" />
 
-            {/* 1.3 URL / Search */}
+            {/* 1.3 URL / Search — favorite button INSIDE the input */}
             <div className="title-bar__search">
-                <input
-                    className="title-bar__search-input"
-                    type="text"
-                    placeholder="输入网址或搜索..."
-                    value={url}
-                    onChange={(e) => onUrlChange?.(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => setSearchFocused(true)}
-                    onBlur={() => setSearchFocused(false)}
-                    aria-label="地址栏"
-                    id="url-bar"
-                    style={searchFocused ? { flex: 1 } : undefined}
-                />
-                <Tooltip title={isFavorited ? '取消收藏' : '收藏'} mouseEnterDelay={0.5}>
-                    <button
-                        className={`title-bar__fav-btn ${isFavorited ? 'title-bar__fav-btn--active' : ''}`}
-                        onClick={onToggleFavorite}
-                        aria-label="收藏"
-                    >
-                        {isFavorited ? <StarFilled /> : <StarOutlined />}
-                    </button>
-                </Tooltip>
+                <div className="title-bar__search-inner">
+                    <input
+                        className="title-bar__search-input"
+                        type="text"
+                        placeholder="输入网址或搜索..."
+                        value={url}
+                        onChange={(e) => onUrlChange?.(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onFocus={() => setSearchFocused(true)}
+                        onBlur={() => setSearchFocused(false)}
+                        aria-label="地址栏"
+                        id="url-bar"
+                        style={searchFocused ? { flex: 1 } : undefined}
+                    />
+                    <Tooltip title={isFavorited ? '取消收藏' : '收藏'} mouseEnterDelay={0.5}>
+                        <button
+                            className={`title-bar__fav-btn ${isFavorited ? 'title-bar__fav-btn--active' : ''}`}
+                            onClick={onToggleFavorite}
+                            aria-label="收藏"
+                        >
+                            {isFavorited ? <StarFilled /> : <StarOutlined />}
+                        </button>
+                    </Tooltip>
+                </div>
             </div>
 
             <div className="title-bar__divider" />
 
-            {/* 1.4 Tabs */}
+            {/* 1.4 Tabs — hidden scrollbar with arrow buttons */}
             <div className="title-bar__tabs">
-                <div className="title-bar__tabs-scroll">
+                {showLeftArrow && (
+                    <button
+                        className="title-bar__tabs-arrow title-bar__tabs-arrow--left"
+                        onClick={scrollTabsLeft}
+                        aria-label="向左滚动标签"
+                    >
+                        <LeftOutlined />
+                    </button>
+                )}
+                <div
+                    className="title-bar__tabs-scroll"
+                    ref={tabsScrollRef}
+                    onWheel={handleTabsWheel}
+                >
                     {tabs.map((tab) => (
                         <div
                             key={tab.id}
@@ -210,6 +248,15 @@ export default function TitleBar({
                         </div>
                     ))}
                 </div>
+                {showRightArrow && (
+                    <button
+                        className="title-bar__tabs-arrow title-bar__tabs-arrow--right"
+                        onClick={scrollTabsRight}
+                        aria-label="向右滚动标签"
+                    >
+                        <RightOutlined />
+                    </button>
+                )}
                 <Tooltip title="新标签页" mouseEnterDelay={0.5}>
                     <button className="title-bar__tab-add" onClick={onTabAdd} aria-label="新建标签页">
                         <PlusOutlined />

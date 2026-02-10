@@ -74,7 +74,6 @@ export default function SnifferPanel({
                                     aria-label="全选"
                                 >
                                     <CheckSquareOutlined />
-                                    <span>全选</span>
                                 </button>
                             </Tooltip>
                             <Tooltip title="清空" mouseEnterDelay={0.5}>
@@ -84,7 +83,6 @@ export default function SnifferPanel({
                                     aria-label="清空"
                                 >
                                     <ClearOutlined />
-                                    <span>清空</span>
                                 </button>
                             </Tooltip>
                             <Tooltip title="合并" mouseEnterDelay={0.5}>
@@ -94,7 +92,6 @@ export default function SnifferPanel({
                                     aria-label="合并"
                                 >
                                     <MergeCellsOutlined />
-                                    <span>合并</span>
                                 </button>
                             </Tooltip>
                             <Tooltip title="批量操作" mouseEnterDelay={0.5}>
@@ -104,7 +101,6 @@ export default function SnifferPanel({
                                     aria-label="批量操作"
                                 >
                                     <ThunderboltOutlined />
-                                    <span>批量</span>
                                     {selectedCount > 0 && (
                                         <span
                                             style={{

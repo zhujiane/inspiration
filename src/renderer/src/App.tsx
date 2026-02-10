@@ -225,81 +225,83 @@ function App(): React.JSX.Element {
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
-      <AntdApp>
+      <AntdApp style={{ height: '100%' }}>
         <div className="app-shell">
-          {/* 1. Title Bar */}
-          <TitleBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            url={url}
-            isFavorited={isFavorited}
-            canGoBack={false}
-            canGoForward={false}
-            onBack={() => { }}
-            onForward={() => { }}
-            onHome={() => setUrl('')}
-            onReload={() => { }}
-            onUrlChange={setUrl}
-            onUrlSubmit={(u) => setUrl(u)}
-            onToggleFavorite={() => setIsFavorited((p) => !p)}
-            onTabSelect={handleTabSelect}
-            onTabClose={handleTabClose}
-            onTabAdd={handleTabAdd}
-            onCloseAll={() => setTabs([])}
-            onCloseRight={() => { }}
-            onCloseOthers={() => {
-              setTabs((prev) => prev.filter((t) => t.id === activeTabId))
-            }}
-            onMenuClick={(k) => console.log('Menu:', k)}
-            onMinimize={() => window.electron?.ipcRenderer.send('window-minimize')}
-            onMaximize={() => window.electron?.ipcRenderer.send('window-maximize')}
-            onClose={() => window.electron?.ipcRenderer.send('window-close')}
+          {/* 1. Left Sidebar — full height */}
+          <LeftSidebar
+            groups={groups}
+            activeItemId={activeNavId}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed((p) => !p)}
+            onItemSelect={handleNavSelect}
+            onItemAdd={(gid) => console.log('Add item to group:', gid)}
+            onItemEdit={(item) => console.log('Edit:', item)}
+            onItemDelete={(item) => console.log('Delete:', item)}
+            onGroupAdd={() => console.log('Add group')}
           />
 
-          {/* Body: Sidebar + Main + Sniffer */}
+          {/* Right body: TitleBar + Content + StatusBar */}
           <div className="app-body">
-            {/* 2. Left Sidebar */}
-            <LeftSidebar
-              groups={groups}
-              activeItemId={activeNavId}
-              collapsed={sidebarCollapsed}
-              onToggle={() => setSidebarCollapsed((p) => !p)}
-              onItemSelect={handleNavSelect}
-              onItemAdd={(gid) => console.log('Add item to group:', gid)}
-              onItemEdit={(item) => console.log('Edit:', item)}
-              onItemDelete={(item) => console.log('Delete:', item)}
-              onGroupAdd={() => console.log('Add group')}
+            {/* 2. Title Bar */}
+            <TitleBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              url={url}
+              isFavorited={isFavorited}
+              canGoBack={false}
+              canGoForward={false}
+              onBack={() => { }}
+              onForward={() => { }}
+              onHome={() => setUrl('')}
+              onReload={() => { }}
+              onUrlChange={setUrl}
+              onUrlSubmit={(u) => setUrl(u)}
+              onToggleFavorite={() => setIsFavorited((p) => !p)}
+              onTabSelect={handleTabSelect}
+              onTabClose={handleTabClose}
+              onTabAdd={handleTabAdd}
+              onCloseAll={() => setTabs([])}
+              onCloseRight={() => { }}
+              onCloseOthers={() => {
+                setTabs((prev) => prev.filter((t) => t.id === activeTabId))
+              }}
+              onMenuClick={(k) => console.log('Menu:', k)}
+              onMinimize={() => window.electron?.ipcRenderer.send('window-minimize')}
+              onMaximize={() => window.electron?.ipcRenderer.send('window-maximize')}
+              onClose={() => window.electron?.ipcRenderer.send('window-close')}
             />
 
-            {/* 3. Main Content */}
-            <MainContent url={url} />
+            {/* 3. Content area: MainContent + SnifferPanel */}
+            <div className="app-content">
+              <MainContent url={url} />
 
-            {/* 4. Right Sniffer Panel */}
-            <SnifferPanel
-              resources={filteredResources}
-              collapsed={snifferCollapsed}
-              searchText={snifferSearch}
-              onToggle={() => setSnifferCollapsed((p) => !p)}
-              onSearchChange={setSnifferSearch}
-              onSelectAll={handleSelectAll}
-              onClearAll={handleClearAll}
-              onMerge={() => console.log('Merge')}
-              onBatchAction={() => console.log('Batch')}
-              onAdvancedSearch={() => console.log('Advanced search')}
-              onResourceSelect={handleResourceSelect}
-              onResourceDelete={handleResourceDelete}
-              onResourcePreview={(id) => console.log('Preview:', id)}
-              onResourceDownload={(id) => console.log('Download:', id)}
-              onResourceCopyUrl={(id) => console.log('Copy URL:', id)}
+              {/* 4. Right Sniffer Panel */}
+              <SnifferPanel
+                resources={filteredResources}
+                collapsed={snifferCollapsed}
+                searchText={snifferSearch}
+                onToggle={() => setSnifferCollapsed((p) => !p)}
+                onSearchChange={setSnifferSearch}
+                onSelectAll={handleSelectAll}
+                onClearAll={handleClearAll}
+                onMerge={() => console.log('Merge')}
+                onBatchAction={() => console.log('Batch')}
+                onAdvancedSearch={() => console.log('Advanced search')}
+                onResourceSelect={handleResourceSelect}
+                onResourceDelete={handleResourceDelete}
+                onResourcePreview={(id) => console.log('Preview:', id)}
+                onResourceDownload={(id) => console.log('Download:', id)}
+                onResourceCopyUrl={(id) => console.log('Copy URL:', id)}
+              />
+            </div>
+
+            {/* 5. Status Bar */}
+            <StatusBar
+              status="connected"
+              resourceCount={resources.length}
+              currentUrl={url}
             />
           </div>
-
-          {/* 5. Status Bar */}
-          <StatusBar
-            status="connected"
-            resourceCount={resources.length}
-            currentUrl={url}
-          />
         </div>
       </AntdApp>
     </ConfigProvider>

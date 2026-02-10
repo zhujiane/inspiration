@@ -8,7 +8,8 @@ import {
     RightOutlined,
     CaretDownOutlined,
     GlobalOutlined,
-    FolderOutlined
+    FolderOutlined,
+    AppstoreOutlined
 } from '@ant-design/icons'
 
 export interface NavItem {
@@ -62,6 +63,14 @@ export default function LeftSidebar({
         <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`} id="left-sidebar">
             {!collapsed && (
                 <>
+                    {/* Brand — moved from TitleBar */}
+                    <div className="sidebar__brand">
+                        <div className="sidebar__brand-icon">
+                            <AppstoreOutlined style={{ color: '#fff', fontSize: 12 }} />
+                        </div>
+                        <span className="sidebar__brand-name">Inspiration</span>
+                    </div>
+
                     <div className="sidebar__header">
                         <span className="sidebar__title">导航</span>
                         <div className="sidebar__actions">

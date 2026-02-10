@@ -5,14 +5,14 @@
    ============================================================ */
 .app-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
   width: 100%;
   overflow: hidden;
 }
 
 /* ============================================================
-   1. TITLE BAR (Top)
+   1. TITLE BAR (Top) — Brand removed, starts with nav buttons
    ============================================================ */
 .title-bar {
   height: var(--title-bar-height);
@@ -25,29 +25,6 @@
   gap: 0;
   -webkit-app-region: drag;
   z-index: 100;
-}
-
-/* 1.1 App Logo + Name */
-.title-bar__brand {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.title-bar__brand-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--border-radius-sm);
-}
-
-.title-bar__brand-name {
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--color-text);
-  letter-spacing: -0.2px;
 }
 
 /* 1.2 Navigation Buttons */
@@ -86,11 +63,10 @@
   pointer-events: none;
 }
 
-/* 1.3 URL / Search Bar */
+/* 1.3 URL / Search Bar — fav button inside input */
 .title-bar__search {
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 0 8px;
   flex-shrink: 0;
   min-width: 200px;
@@ -98,22 +74,32 @@
   -webkit-app-region: no-drag;
 }
 
-.title-bar__search-input {
-  flex: 1;
+.title-bar__search-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
   height: 26px;
-  padding: 0 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-base);
   background: var(--color-bg-spotlight);
+  overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.title-bar__search-inner:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-bg);
+}
+
+.title-bar__search-input {
+  flex: 1;
+  height: 100%;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
   font-size: var(--font-size-xs);
   color: var(--color-text);
   outline: none;
-  transition: border-color var(--transition-fast);
-}
-
-.title-bar__search-input:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-bg);
 }
 
 .title-bar__search-input::placeholder {
@@ -125,11 +111,11 @@
   align-items: center;
   justify-content: center;
   width: 26px;
-  height: 26px;
-  border-radius: var(--border-radius-sm);
+  height: 24px;
+  flex-shrink: 0;
   color: var(--color-text-tertiary);
   transition: color var(--transition-fast);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .title-bar__fav-btn:hover {
@@ -149,7 +135,7 @@
   margin: 0 4px;
 }
 
-/* 1.4 Tabs */
+/* 1.4 Tabs — hidden scrollbar, arrow buttons */
 .title-bar__tabs {
   display: flex;
   align-items: center;
@@ -169,17 +155,35 @@
   overflow-y: hidden;
   flex: 1;
   min-width: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  /* Hide scrollbar */
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE/Edge */
 }
 
 .title-bar__tabs-scroll::-webkit-scrollbar {
-  height: 3px;
+  display: none;
+  /* Chrome/Safari */
 }
 
-.title-bar__tabs-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
+/* Tab scroll arrow buttons */
+.title-bar__tabs-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 26px;
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.title-bar__tabs-arrow:hover {
+  background: var(--color-bg-layout);
+  color: var(--color-text);
 }
 
 .title-bar__tab {
@@ -340,6 +344,17 @@
    ============================================================ */
 .app-body {
   display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-content {
+  display: flex;
+  flex-direction: row;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -347,7 +362,7 @@
 }
 
 /* ============================================================
-   2. LEFT SIDEBAR — Navigation
+   2. LEFT SIDEBAR — Navigation (with brand)
    ============================================================ */
 .sidebar {
   width: var(--sidebar-width);
@@ -366,6 +381,40 @@
   width: var(--sidebar-collapsed-width);
   min-width: var(--sidebar-collapsed-width);
   border-right: none;
+}
+
+/* Brand section at top of sidebar */
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: var(--title-bar-height);
+  min-height: var(--title-bar-height);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.sidebar__brand-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--border-radius-sm);
+  background: linear-gradient(135deg, #1677ff, #4096ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar__brand-name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar__header {
@@ -767,7 +816,7 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* Card Top Controls */
+/* Card Top Controls — checkbox always visible */
 .media-card__top-controls {
   position: absolute;
   top: 0;
@@ -775,15 +824,9 @@
   right: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 4px 6px;
   z-index: 2;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.media-card:hover .media-card__top-controls {
-  opacity: 1;
 }
 
 .media-card__checkbox {
@@ -791,23 +834,6 @@
   height: 14px;
   accent-color: var(--color-primary);
   cursor: pointer;
-}
-
-.media-card__delete-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  font-size: 10px;
-  transition: background var(--transition-fast);
-}
-
-.media-card__delete-btn:hover {
-  background: var(--color-error);
 }
 
 /* Card Thumbnail */
@@ -889,7 +915,7 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* Card Bottom Actions (4.3) */
+/* Card Bottom Actions (4.3) — delete moved here */
 .media-card__actions {
   display: flex;
   align-items: center;
@@ -916,22 +942,24 @@
   background: var(--color-primary-bg);
 }
 
+.media-card__action-btn--danger:hover {
+  color: var(--color-error);
+  background: #fff1f0;
+}
+
 /* Selected state */
 .media-card--selected {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary);
 }
 
-.media-card--selected .media-card__top-controls {
-  opacity: 1;
-}
-
 /* ============================================================
-   5. STATUS BAR (Bottom)
+   5. STATUS BAR (Bottom) — fixed height
    ============================================================ */
 .status-bar {
   height: var(--status-bar-height);
   min-height: var(--status-bar-height);
+  max-height: var(--status-bar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -942,18 +970,23 @@
   color: var(--color-text-tertiary);
   z-index: 100;
   gap: 12px;
+  line-height: 1;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .status-bar__left {
   display: flex;
   align-items: center;
   gap: 12px;
+  overflow: hidden;
 }
 
 .status-bar__right {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .status-bar__item {
