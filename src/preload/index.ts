@@ -1,4 +1,4 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
@@ -11,6 +11,10 @@ if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    // 自定义 tRPC 桥接
+    contextBridge.exposeInMainWorld('trpc', {
+      invoke: (channel: string, payload: any) => ipcRenderer.invoke(channel, payload)
+    })
   } catch (error) {
     console.error(error)
   }
@@ -19,4 +23,8 @@ if (process.contextIsolated) {
   window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
+  // @ts-ignore
+  window.trpc = {
+    invoke: (channel: string, payload: any) => ipcRenderer.invoke(channel, payload)
+  }
 }

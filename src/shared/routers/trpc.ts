@@ -18,6 +18,11 @@ export class BizError extends Error {
 
 // 初始化 tRPC
 export const trpc = initTRPC.create({
+  // 显式指定 transformer，确保数据序列化一致性
+  transformer: {
+    serialize: (obj: any) => obj,
+    deserialize: (obj: any) => obj
+  },
   // 错误格式化器：将错误信息转换成前端易于处理的格式
   errorFormatter({ shape, error }) {
     return {

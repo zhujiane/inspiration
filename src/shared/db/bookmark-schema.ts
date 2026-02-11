@@ -5,13 +5,13 @@ import { base } from './base'
 export const bookmarks = sqliteTable('bookmarks', {
   ...base,
   name: text('name').notNull(),
-  order:integer('order').notNull().default(0),
-  group: text('group'),
-  groupOrder: integer('groupOrder').notNull().default(0),
+  order: integer('order').notNull().default(0),
+  parentId: integer('parent_id').notNull().default(0),
+  type: integer('type').notNull().default(0), // 1=group, 2=url, 3=app
   url: text('url'),
-  storage: text('storage'),
-  userDataPath: text('userDataPath'),
-  status: integer('status').notNull().default(0),
+  storage: text('storage'), // 浏览器的session ，cookie ，localstorage ，转成json
+  userDataPath: text('userDataPath'), // 浏览器持久化到本地的路径
+  status: integer('status').notNull().default(0), // 待定
   description: text('description')
 })
 

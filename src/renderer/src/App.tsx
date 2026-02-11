@@ -4,7 +4,7 @@ import zhCN from 'antd/locale/zh_CN'
 import TitleBar from './components/TitleBar'
 import type { Tab } from './components/TitleBar'
 import LeftSidebar from './components/LeftSidebar'
-import type { NavGroup, NavItem } from './components/LeftSidebar'
+import type { Bookmark } from '../../shared/db/bookmark-schema'
 import MainContent from './components/MainContent'
 import SnifferPanel from './components/SnifferPanel'
 import type { MediaResource } from './components/SnifferPanel/MediaCard'
@@ -18,34 +18,7 @@ const DEMO_TABS: Tab[] = [
   { id: 'tab-2', title: '小红书', url: 'https://www.xiaohongshu.com' }
 ]
 
-const DEMO_GROUPS: NavGroup[] = [
-  {
-    id: 'group-1',
-    title: '短视频',
-    items: [
-      { id: 'nav-1', label: '抖音', url: 'https://www.douyin.com' },
-      { id: 'nav-2', label: '快手', url: 'https://www.kuaishou.com' },
-      { id: 'nav-3', label: 'B站', url: 'https://www.bilibili.com' }
-    ]
-  },
-  {
-    id: 'group-2',
-    title: '社交媒体',
-    items: [
-      { id: 'nav-4', label: '小红书', url: 'https://www.xiaohongshu.com' },
-      { id: 'nav-5', label: '微博', url: 'https://weibo.com' },
-      { id: 'nav-6', label: 'Instagram', url: 'https://www.instagram.com' }
-    ]
-  },
-  {
-    id: 'group-3',
-    title: '图片素材',
-    items: [
-      { id: 'nav-7', label: 'Unsplash', url: 'https://unsplash.com' },
-      { id: 'nav-8', label: 'Pexels', url: 'https://www.pexels.com' }
-    ]
-  }
-]
+// No longer used as Sidebar handles its own data
 
 const DEMO_RESOURCES: MediaResource[] = [
   {
@@ -130,8 +103,7 @@ function App(): React.JSX.Element {
   const [isFavorited, setIsFavorited] = useState(false)
 
   // --- Sidebar State ---
-  const [groups] = useState<NavGroup[]>(DEMO_GROUPS)
-  const [activeNavId, setActiveNavId] = useState('nav-1')
+  const [activeNavId, setActiveNavId] = useState<string | number>('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // --- Sniffer Panel State ---
@@ -174,7 +146,7 @@ function App(): React.JSX.Element {
     setUrl('')
   }, [])
 
-  const handleNavSelect = useCallback((item: NavItem) => {
+  const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
     if (item.url) {
       setUrl(item.url)
@@ -187,8 +159,8 @@ function App(): React.JSX.Element {
         }
         const newTab: Tab = {
           id: `tab-${Date.now()}`,
-          title: item.label,
-          url: item.url
+          title: item.name,
+          url: item.url || ''
         }
         setActiveTabId(newTab.id)
         return [...prev, newTab]
@@ -221,17 +193,7 @@ function App(): React.JSX.Element {
       <AntdApp style={{ height: '100%' }}>
         <div className="app-shell">
           {/* 1. Left Sidebar — full height */}
-          <LeftSidebar
-            groups={groups}
-            activeItemId={activeNavId}
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((p) => !p)}
-            onItemSelect={handleNavSelect}
-            onItemAdd={(gid) => console.log('Add item to group:', gid)}
-            onItemEdit={(item) => console.log('Edit:', item)}
-            onItemDelete={(item) => console.log('Delete:', item)}
-            onGroupAdd={() => console.log('Add group')}
-          />
+          <LeftSidebar activeItemId={activeNavId} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((p) => !p)} onItemSelect={handleNavSelect} />
 
           {/* Right body: TitleBar + Content + StatusBar */}
           <div className="app-body">

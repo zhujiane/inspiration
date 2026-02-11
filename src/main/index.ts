@@ -17,7 +17,6 @@ function createWindow(): BrowserWindow {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      // `electron-trpc` requires contextIsolation (default true, but make it explicit)
       contextIsolation: true,
       sandbox: false,
       webviewTag: true
@@ -73,16 +72,15 @@ app.whenReady().then(async () => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  const win = createWindow()
-  // Set up tRPC IPC handler after window exists so it can route messages properly
-  setupTRPC([win])
+  createWindow()
+  // Set up tRPC IPC handler
+  setupTRPC()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-      const newWin = createWindow()
-      setupTRPC([newWin])
+      createWindow()
     }
   })
 })

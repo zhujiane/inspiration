@@ -3,6 +3,7 @@ import { bookmarkCreateSchema, bookmarks, bookmarkUpdateSchema } from '../db/boo
 import { BizError, publicProcedure, trpc } from './trpc'
 import { eq } from 'drizzle-orm'
 import { idSchema } from '../db/base'
+import { z } from 'zod'
 
 // Bookmark CRUD 路由
 export const bookmarkRouter = trpc.router({
@@ -44,5 +45,24 @@ export const bookmarkRouter = trpc.router({
       throw new BizError('书签不存在', 404)
     }
     return { success: true }
-  })
+  }),
+
+  // 批量更新排序
+  reorder: publicProcedure
+    .input(
+      z.array(
+        z.object({
+          id: z.number(),
+          order: z.number().optional(),
+          parentId: z.number().optional()
+        })
+      )
+    )
+    .mutation(async ({ input }) => {
+      for (const item of input) {
+        const { id, ...data } = item
+        await db.update(bookmarks).set(data).where(eq(bookmarks.id, id))
+      }
+      return { success: true }
+    })
 })

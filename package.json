@@ -26,6 +26,9 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@libsql/client": "^0.17.0",
@@ -36,7 +39,6 @@
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.1",
     "drizzle-zod": "^0.8.3",
-    "electron-trpc": "^0.7.1",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
