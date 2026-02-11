@@ -12,13 +12,14 @@ import {
   AppstoreOutlined,
   HolderOutlined,
   AppstoreAddOutlined,
-  LinkOutlined
+  LinkOutlined,
+  SearchOutlined
 } from '@ant-design/icons'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { trpc } from '../../lib/trpc'
-import type { Bookmark } from '../../../../shared/db/bookmark-schema'
+import type { Bookmark } from '@shared/db/bookmark-schema'
 
 /* ============================================================
    Interfaces & Types
@@ -41,6 +42,28 @@ interface LeftSidebarProps {
 }
 
 /* ============================================================
+   Helpers
+   ============================================================ */
+const HighlightText = ({ text, highlight }: { text: string; highlight?: string }) => {
+  if (!highlight?.trim()) return <span>{text}</span>
+  const escapedHighlight = highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escapedHighlight})`, 'gi'))
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.toLowerCase() === highlight.toLowerCase() ? (
+          <mark key={i} className="sidebar__highlight">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  )
+}
+
+/* ============================================================
    Sortable Components
    ============================================================ */
 
@@ -51,9 +74,10 @@ interface SortableItemProps {
   onClick: () => void
   onEdit: () => void
   onDelete: () => void
+  searchText?: string
 }
 
-const SortableItem = ({ item, isActive, onClick, onEdit, onDelete }: SortableItemProps) => {
+const SortableItem = ({ item, isActive, onClick, onEdit, onDelete, searchText }: SortableItemProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `item-${item.id}`, data: { type: 'item', item } })
 
   const style = {
@@ -69,7 +93,9 @@ const SortableItem = ({ item, isActive, onClick, onEdit, onDelete }: SortableIte
         <HolderOutlined style={{ fontSize: 10, cursor: 'grab' }} />
       </div>
       <span className="sidebar__item-icon">{item.type === 3 ? <AppstoreOutlined /> : <GlobalOutlined />}</span>
-      <span className="sidebar__item-label">{item.name}</span>
+      <span className="sidebar__item-label">
+        <HighlightText text={item.name} highlight={searchText} />
+      </span>
       <div className="sidebar__item-actions">
         <Tooltip title="编辑" mouseEnterDelay={0.5}>
           <button
@@ -115,10 +141,15 @@ interface SortableGroupProps {
   onItemSelect: (item: Bookmark) => void
   onItemEdit: (item: Bookmark) => void
   onItemDelete: (item: Bookmark) => void
+  searchText?: string
 }
 
-const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, onEdit, onItemSelect, onItemEdit, onItemDelete }: SortableGroupProps) => {
+const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, onEdit, onItemSelect, onItemEdit, onItemDelete, searchText }: SortableGroupProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `group-${group.id}`, data: { type: 'group', group } })
+
+  const isActuallyCollapsed = searchText
+    ? !group.title.toLowerCase().includes(searchText.toLowerCase()) && !group.items.some((item) => item.name.toLowerCase().includes(searchText.toLowerCase())) && isCollapsed
+    : isCollapsed
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -132,9 +163,11 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
         <div className="sidebar__group-drag-handle" {...attributes} {...listeners} style={{ marginRight: 4 }}>
           <HolderOutlined style={{ fontSize: 10, cursor: 'grab' }} />
         </div>
-        <CaretDownOutlined className={`sidebar__group-arrow ${isCollapsed ? 'sidebar__group-arrow--collapsed' : ''}`} />
+        <CaretDownOutlined className={`sidebar__group-arrow ${isActuallyCollapsed ? 'sidebar__group-arrow--collapsed' : ''}`} />
         <FolderOutlined style={{ fontSize: 12, marginRight: 2 }} />
-        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{group.title}</span>
+        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <HighlightText text={group.title} highlight={searchText} />
+        </span>
 
         <div className="sidebar__group-actions" style={{ display: 'flex', gap: 2 }}>
           <Tooltip title="编辑目录" mouseEnterDelay={0.5}>
@@ -164,7 +197,7 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
         </div>
       </div>
 
-      {!isCollapsed && (
+      {!isActuallyCollapsed && (
         <div className="sidebar__group-items">
           <SortableContext items={group.items.map((item) => `item-${item.id}`)} strategy={verticalListSortingStrategy}>
             {group.items.map((item) => (
@@ -175,6 +208,7 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
                 onClick={() => onItemSelect(item)}
                 onEdit={() => onItemEdit(item)}
                 onDelete={() => onItemDelete(item)}
+                searchText={searchText}
               />
             ))}
             {group.items.length === 0 && <div style={{ padding: '8px 24px', fontSize: 11, color: '#999', fontStyle: 'italic' }}>暂无书签</div>}
@@ -195,6 +229,7 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Partial<Bookmark> | null>(null)
+  const [searchText, setSearchText] = useState('')
   const [form] = Form.useForm()
 
   // --- Fetch Data ---
@@ -223,6 +258,25 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
       items: bookmarks.filter((b) => b.parentId === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0))
     }))
   }, [bookmarks])
+
+  const filteredGroups = useMemo(() => {
+    if (!searchText) return groups
+    const term = searchText.toLowerCase()
+    return groups
+      .map((group) => {
+        const matchingItems = group.items.filter((item) => item.name.toLowerCase().includes(term) || (item.url && item.url.toLowerCase().includes(term)))
+        const groupMatches = group.title.toLowerCase().includes(term)
+
+        if (groupMatches || matchingItems.length > 0) {
+          return {
+            ...group,
+            items: groupMatches ? group.items : matchingItems
+          }
+        }
+        return null
+      })
+      .filter(Boolean) as NavGroup[]
+  }, [groups, searchText])
 
   // --- Handlers ---
   const toggleGroup = (groupId: number): void => {
@@ -374,9 +428,18 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
             </div>
             <span className="sidebar__brand-name">Inspiration</span>
           </div>
-
           <div className="sidebar__header">
-            <span className="sidebar__title">导航</span>
+            <div className="sidebar__search-container">
+              <Input
+                placeholder="搜索侧边栏..."
+                variant="borderless"
+                prefix={<SearchOutlined style={{ color: 'var(--color-text-quaternary)', fontSize: 12 }} />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                allowClear
+                className="sidebar__search-input"
+              />
+            </div>
             <div className="sidebar__actions">
               <Tooltip title="新建目录" mouseEnterDelay={0.5}>
                 <button className="sidebar__action-btn" onClick={handleAddGroup} aria-label="新建目录">
@@ -387,14 +450,14 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
           </div>
 
           <div className="sidebar__content">
-            {groups.length === 0 ? (
+            {filteredGroups.length === 0 ? (
               <div style={{ padding: '20px 0' }}>
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分类" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={searchText ? '未找到匹配内容' : '暂无分类'} />
               </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={groups.map((g) => `group-${g.id}`)} strategy={verticalListSortingStrategy}>
-                  {groups.map((group) => (
+                <SortableContext items={filteredGroups.map((g) => `group-${g.id}`)} strategy={verticalListSortingStrategy}>
+                  {filteredGroups.map((group) => (
                     <SortableGroup
                       key={group.id}
                       group={group}
@@ -406,6 +469,7 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
                       onItemSelect={(item) => onItemSelect?.(item)}
                       onItemEdit={handleEdit}
                       onItemDelete={handleDelete}
+                      searchText={searchText}
                     />
                   ))}
                 </SortableContext>
@@ -483,6 +547,26 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
         }
         .sidebar__item--active .sidebar__item-drag-handle {
           color: var(--color-primary);
+        }
+        .sidebar__search-container {
+          flex: 1;
+          margin-right: 8px;
+        }
+        .sidebar__search-input {
+          height: 24px;
+          padding: 0 4px;
+          font-size: 12px;
+          background: var(--color-bg-layout);
+          border-radius: 4px;
+        }
+        .sidebar__search-input:hover, .sidebar__search-input:focus {
+          background: var(--color-bg-container);
+        }
+        .sidebar__highlight {
+          background-color: #ffe58f;
+          color: rgba(0, 0, 0, 0.88);
+          padding: 0 2px;
+          border-radius: 2px;
         }
       `}</style>
     </aside>

@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { appRouter } from '@shared/routers/router'
+import { appRouter } from './router'
 
 /**
  * 设置自定义 tRPC IPC 处理器

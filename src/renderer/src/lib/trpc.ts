@@ -1,6 +1,6 @@
 import { createTRPCProxyClient, TRPCClientError } from '@trpc/client'
 import { observable } from '@trpc/server/observable'
-import type { AppRouter } from '@shared/routers/router'
+import type { AppRouter } from '@main/router'
 
 // 创建 tRPC 客户端，使用自定义 IPC link
 export const trpc = createTRPCProxyClient<AppRouter>({
