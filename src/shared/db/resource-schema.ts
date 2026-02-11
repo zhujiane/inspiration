@@ -1,21 +1,13 @@
-import { randomUUID } from 'crypto'
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { createSelectSchema, createUpdateSchema } from 'drizzle-zod'
-
-
-export const base={
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  code: text('code').notNull().$defaultFn(() => randomUUID()),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date())
-}
+import { base } from './base'
 
 export const resources = sqliteTable('resources', {
   ...base,
   name: text('name').notNull(),
   type: text('type').notNull(),
   url: text('url'),
-  description: text('description'),
+  description: text('description')
 })
 
 export type Resource = typeof resources.$inferSelect
@@ -33,10 +25,8 @@ export const resourceUpdateSchema = baseUpdateSchema.required({
 })
 
 // 创建时：不带 id，且 name / type 必填
-export const resourceCreateSchema = baseUpdateSchema
-  .omit({ id: true })
-  .required({
-    name: true,
-    type: true
-  })
+export const resourceCreateSchema = baseUpdateSchema.omit({ id: true }).required({
+  name: true,
+  type: true
+})
 export const resourceSelectSchema = createSelectSchema(resources)

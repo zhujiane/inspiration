@@ -1,5 +1,4 @@
 import { initTRPC, TRPCError } from '@trpc/server'
-import { z } from 'zod'
 
 /**
  * 业务异常类
@@ -30,6 +29,28 @@ export const trpc = initTRPC.create({
       }
     }
   }
+})
+
+/**
+ * 性能监控中间件
+ * 记录每个 procedure 的执行时间
+ */
+const performanceMiddleware = trpc.middleware(async ({ next, path, type }) => {
+  const start = Date.now()
+  const result = await next()
+  const duration = Date.now() - start
+
+  // 只在开发环境记录
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[tRPC Perf] ${type} ${path}: ${duration}ms`)
+  }
+
+  // 如果执行时间超过 1s，发出警告
+  if (duration > 1000) {
+    console.warn(`[tRPC Performance Warning] ${type} ${path} took ${duration}ms`)
+  }
+
+  return result
 })
 
 /**
@@ -68,9 +89,5 @@ const errorMiddleware = trpc.middleware(async ({ next, path, type }) => {
   }
 })
 
-// 导出基础路由和过程，默认应用异常捕获中间件
-export const publicProcedure = trpc.procedure.use(errorMiddleware)
-
-export const idSchema = z.object({
-  id: z.number().int().positive()
-})
+// 导出基础路由和过程，默认应用中间件
+export const publicProcedure = trpc.procedure.use(performanceMiddleware).use(errorMiddleware)

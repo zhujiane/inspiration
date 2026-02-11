@@ -1,7 +1,8 @@
 import { db } from '@main/db'
-import { resourceCreateSchema, resources, resourceUpdateSchema } from '@shared/db/resource-schema'
-import { BizError, idSchema, publicProcedure, trpc } from './trpc'
+import { resourceCreateSchema, resources, resourceUpdateSchema } from '../db/resource-schema'
+import { BizError, publicProcedure, trpc } from './trpc'
 import { eq } from 'drizzle-orm'
+import { idSchema } from '../db/base'
 
 // Resource CRUD 路由
 export const resourceRouter = trpc.router({
