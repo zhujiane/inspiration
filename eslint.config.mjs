@@ -25,7 +25,10 @@ export default defineConfig(
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      'newline-per-chained-call': 'off',
+      '@stylistic/newline-per-chained-call': 'off',
+      '@stylistic/js/newline-per-chained-call': 'off'
     }
   },
   eslintConfigPrettier
