@@ -9,20 +9,12 @@ import * as schema from '@shared/db/resource-schema'
 // 根据环境选择数据库路径
 // dev: 使用项目根目录
 // prod: 使用用户数据目录
-const getDbPath = (): string => {
-  if (is.dev) {
-    // 开发环境：使用项目根目录下的 db.sqlite
-    return join(process.cwd(), 'db.sqlite')
-  } else {
-    // 生产环境：使用应用数据目录
-    return join(app.getPath('userData'), 'db.sqlite')
-  }
+export const getDbPath = (): string => {
+  return join(app.getPath('userData'), 'db.sqlite')
 }
 
-const dbPath = getDbPath()
-
 // 创建 better-sqlite3 数据库实例
-const sqlite = new Database(dbPath)
+const sqlite = new Database(getDbPath())
 
 // 创建 drizzle 实例
 export const db = drizzle(sqlite, {
