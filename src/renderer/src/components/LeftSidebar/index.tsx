@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Tooltip, Modal, Form, Input, Select, App as AntdApp, Popconfirm, Empty } from 'antd'
 import {
   PlusOutlined,
@@ -32,6 +32,10 @@ export interface NavGroup {
   title: string
   items: NavItem[]
   order: number
+}
+
+export interface LeftSidebarRef {
+  refresh: () => void
 }
 
 interface LeftSidebarProps {
@@ -223,7 +227,7 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
    Main Component
    ============================================================ */
 
-export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemSelect }: LeftSidebarProps): React.JSX.Element {
+const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId, collapsed, onToggle, onItemSelect }, ref) => {
   const { message } = AntdApp.useApp()
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
@@ -231,6 +235,12 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
   const [editingItem, setEditingItem] = useState<Partial<Bookmark> | null>(null)
   const [searchText, setSearchText] = useState('')
   const [form] = Form.useForm()
+
+  useImperativeHandle(ref, () => ({
+    refresh: () => {
+      fetchBookmarks()
+    }
+  }))
 
   // --- Fetch Data ---
   const fetchBookmarks = useCallback(async () => {
@@ -571,4 +581,8 @@ export default function LeftSidebar({ activeItemId, collapsed, onToggle, onItemS
       `}</style>
     </aside>
   )
-}
+})
+
+LeftSidebar.displayName = 'LeftSidebar'
+
+export default LeftSidebar

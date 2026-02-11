@@ -23,6 +23,7 @@ export interface Tab {
   title: string
   url?: string
   favicon?: string
+  userDataPath?: string
 }
 
 interface TitleBarProps {
