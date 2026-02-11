@@ -109,8 +109,7 @@ const antdTheme = {
     fontSize: 12,
     borderRadius: 4,
     controlHeight: 28,
-    fontFamily:
-      "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
   },
   components: {
     Button: { controlHeight: 24, paddingInline: 8 },
@@ -215,13 +214,7 @@ function App(): React.JSX.Element {
   }, [])
 
   // Filter resources by search
-  const filteredResources = snifferSearch
-    ? resources.filter(
-      (r) =>
-        r.title.toLowerCase().includes(snifferSearch.toLowerCase()) ||
-        r.type.includes(snifferSearch.toLowerCase())
-    )
-    : resources
+  const filteredResources = snifferSearch ? resources.filter((r) => r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())) : resources
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
@@ -250,10 +243,10 @@ function App(): React.JSX.Element {
               isFavorited={isFavorited}
               canGoBack={false}
               canGoForward={false}
-              onBack={() => { }}
-              onForward={() => { }}
+              onBack={() => {}}
+              onForward={() => {}}
               onHome={() => setUrl('')}
-              onReload={() => { }}
+              onReload={() => {}}
               onUrlChange={setUrl}
               onUrlSubmit={(u) => setUrl(u)}
               onToggleFavorite={() => setIsFavorited((p) => !p)}
@@ -261,7 +254,7 @@ function App(): React.JSX.Element {
               onTabClose={handleTabClose}
               onTabAdd={handleTabAdd}
               onCloseAll={() => setTabs([])}
-              onCloseRight={() => { }}
+              onCloseRight={() => {}}
               onCloseOthers={() => {
                 setTabs((prev) => prev.filter((t) => t.id === activeTabId))
               }}
@@ -296,11 +289,7 @@ function App(): React.JSX.Element {
             </div>
 
             {/* 5. Status Bar */}
-            <StatusBar
-              status="connected"
-              resourceCount={resources.length}
-              currentUrl={url}
-            />
+            <StatusBar status="connected" resourceCount={resources.length} currentUrl={url} />
           </div>
         </div>
       </AntdApp>

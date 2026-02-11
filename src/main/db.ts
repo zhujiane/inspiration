@@ -39,9 +39,7 @@ export const db = drizzle(sqlite, {
 export async function initDb(): Promise<void> {
   try {
     // 迁移文件路径（兼容 dev/prod）
-    const migrationsFolder = is.dev
-      ? join(process.cwd(), 'src/main/migrations')
-      : join(__dirname, 'migrations')
+    const migrationsFolder = is.dev ? join(process.cwd(), 'src/main/migrations') : join(__dirname, 'migrations')
 
     // 执行迁移
     await migrate(db, { migrationsFolder })

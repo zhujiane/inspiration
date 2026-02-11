@@ -83,7 +83,9 @@
   border-radius: var(--border-radius-base);
   background: var(--color-bg-spotlight);
   overflow: hidden;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .title-bar__search-inner:focus-within {
@@ -372,7 +374,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--transition-base), min-width var(--transition-base);
+  transition:
+    width var(--transition-base),
+    min-width var(--transition-base);
   position: relative;
   z-index: 10;
 }
@@ -651,7 +655,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--transition-base), min-width var(--transition-base);
+  transition:
+    width var(--transition-base),
+    min-width var(--transition-base);
   position: relative;
   z-index: 10;
 }
@@ -807,7 +813,9 @@
   border-radius: var(--border-radius-base);
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    box-shadow var(--transition-fast),
+    border-color var(--transition-fast);
   position: relative;
 }
 
