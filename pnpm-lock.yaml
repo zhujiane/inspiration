@@ -8,6 +8,25 @@ importers:
 
   .:
     dependencies:
+      '@trpc/server':
+        specifier: ^11.9.0
+        version: 11.10.0(typescript@5.9.3)
+      better-sqlite3:
+        specifier: ^12.6.2
+        version: 12.6.2
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2)
+      drizzle-zod:
+        specifier: ^0.8.3
+        version: 0.8.3(drizzle-orm@0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2))(zod@3.25.76)
+      electron-updater:
+        specifier: ^6.3.9
+        version: 6.7.3
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
       '@ant-design/icons':
         specifier: ^6.1.0
         version: 6.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -20,49 +39,24 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.4)
-      '@electron-toolkit/preload':
-        specifier: ^3.0.2
-        version: 3.0.2(electron@39.5.1)
-      '@electron-toolkit/utils':
-        specifier: ^4.0.0
-        version: 4.0.0(electron@39.5.1)
-      '@libsql/client':
-        specifier: ^0.17.0
-        version: 0.17.0(encoding@0.1.13)
-      '@trpc/client':
-        specifier: ^11.9.0
-        version: 11.10.0(@trpc/server@11.10.0(typescript@5.9.3))(typescript@5.9.3)
-      '@trpc/server':
-        specifier: ^11.9.0
-        version: 11.10.0(typescript@5.9.3)
-      antd:
-        specifier: ^6.2.2
-        version: 6.3.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      better-sqlite3:
-        specifier: ^12.6.2
-        version: 12.6.2
-      dotenv:
-        specifier: ^17.2.4
-        version: 17.2.4
-      drizzle-orm:
-        specifier: ^0.45.1
-        version: 0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2)
-      drizzle-zod:
-        specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2))(zod@4.3.6)
-      electron-updater:
-        specifier: ^6.3.9
-        version: 6.7.3
-    devDependencies:
       '@electron-toolkit/eslint-config-prettier':
         specifier: ^3.0.0
         version: 3.0.0(eslint@9.39.2(jiti@2.6.1))(prettier@3.8.1)
       '@electron-toolkit/eslint-config-ts':
         specifier: ^3.1.0
         version: 3.1.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+      '@electron-toolkit/preload':
+        specifier: ^3.0.2
+        version: 3.0.2(electron@39.5.1)
       '@electron-toolkit/tsconfig':
         specifier: ^2.0.0
         version: 2.0.0(@types/node@22.19.10)
+      '@electron-toolkit/utils':
+        specifier: ^4.0.0
+        version: 4.0.0(electron@39.5.1)
+      '@trpc/client':
+        specifier: ^11.9.0
+        version: 11.10.0(@trpc/server@11.10.0(typescript@5.9.3))(typescript@5.9.3)
       '@types/node':
         specifier: ^22.19.1
         version: 22.19.10
@@ -75,6 +69,12 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.1.1
         version: 5.1.4(vite@7.3.1(@types/node@22.19.10)(jiti@2.6.1)(tsx@4.21.0))
+      antd:
+        specifier: ^6.2.2
+        version: 6.3.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      dotenv:
+        specifier: ^17.2.4
+        version: 17.2.4
       drizzle-kit:
         specifier: ^0.31.8
         version: 0.31.9
@@ -3726,8 +3726,8 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
 
@@ -4404,10 +4404,12 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
+    optional: true
 
   '@libsql/core@0.17.0':
     dependencies:
       js-base64: 3.7.8
+    optional: true
 
   '@libsql/darwin-arm64@0.5.22':
     optional: true
@@ -4425,6 +4427,7 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
+    optional: true
 
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
@@ -4433,6 +4436,7 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+    optional: true
 
   '@libsql/linux-arm-gnueabihf@0.5.22':
     optional: true
@@ -4468,7 +4472,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@neon-rs/load@0.0.4': {}
+  '@neon-rs/load@0.0.4':
+    optional: true
 
   '@npmcli/agent@3.0.0':
     dependencies:
@@ -5003,6 +5008,7 @@ snapshots:
   '@types/ws@8.18.1':
     dependencies:
       '@types/node': 22.19.10
+    optional: true
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -5534,6 +5540,7 @@ snapshots:
       node-fetch: 2.7.0(encoding@0.1.13)
     transitivePeerDependencies:
       - encoding
+    optional: true
 
   cross-spawn@7.0.6:
     dependencies:
@@ -5543,7 +5550,8 @@ snapshots:
 
   csstype@3.2.3: {}
 
-  data-uri-to-buffer@4.0.1: {}
+  data-uri-to-buffer@4.0.1:
+    optional: true
 
   data-view-buffer@1.0.2:
     dependencies:
@@ -5597,7 +5605,8 @@ snapshots:
 
   delayed-stream@1.0.0: {}
 
-  detect-libc@2.0.2: {}
+  detect-libc@2.0.2:
+    optional: true
 
   detect-libc@2.1.2: {}
 
@@ -5660,10 +5669,10 @@ snapshots:
       '@libsql/client': 0.17.0(encoding@0.1.13)
       better-sqlite3: 12.6.2
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2))(zod@4.3.6):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2))(zod@3.25.76):
     dependencies:
       drizzle-orm: 0.45.1(@libsql/client@0.17.0(encoding@0.1.13))(better-sqlite3@12.6.2)
-      zod: 4.3.6
+      zod: 3.25.76
 
   dunder-proto@1.0.1:
     dependencies:
@@ -5996,8 +6005,8 @@ snapshots:
       '@babel/parser': 7.29.0
       eslint: 9.39.2(jiti@2.6.1)
       hermes-parser: 0.25.1
-      zod: 4.3.6
-      zod-validation-error: 4.0.2(zod@4.3.6)
+      zod: 3.25.76
+      zod-validation-error: 4.0.2(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
 
@@ -6132,6 +6141,7 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
+    optional: true
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -6175,6 +6185,7 @@ snapshots:
   formdata-polyfill@4.0.10:
     dependencies:
       fetch-blob: 3.2.0
+    optional: true
 
   fs-constants@1.0.0: {}
 
@@ -6570,7 +6581,8 @@ snapshots:
 
   jiti@2.6.1: {}
 
-  js-base64@3.7.8: {}
+  js-base64@3.7.8:
+    optional: true
 
   js-tokens@4.0.0: {}
 
@@ -6637,6 +6649,7 @@ snapshots:
       '@libsql/linux-x64-gnu': 0.5.22
       '@libsql/linux-x64-musl': 0.5.22
       '@libsql/win32-x64-msvc': 0.5.22
+    optional: true
 
   locate-path@6.0.0:
     dependencies:
@@ -6795,19 +6808,22 @@ snapshots:
     dependencies:
       semver: 7.7.4
 
-  node-domexception@1.0.0: {}
+  node-domexception@1.0.0:
+    optional: true
 
   node-fetch@2.7.0(encoding@0.1.13):
     dependencies:
       whatwg-url: 5.0.0
     optionalDependencies:
       encoding: 0.1.13
+    optional: true
 
   node-fetch@3.3.2:
     dependencies:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
+    optional: true
 
   node-gyp@11.5.0:
     dependencies:
@@ -6988,7 +7004,8 @@ snapshots:
 
   progress@2.0.3: {}
 
-  promise-limit@2.7.0: {}
+  promise-limit@2.7.0:
+    optional: true
 
   promise-retry@2.0.1:
     dependencies:
@@ -7452,7 +7469,8 @@ snapshots:
 
   tmp@0.2.5: {}
 
-  tr46@0.0.3: {}
+  tr46@0.0.3:
+    optional: true
 
   truncate-utf8-bytes@1.0.2:
     dependencies:
@@ -7588,14 +7606,17 @@ snapshots:
     dependencies:
       defaults: 1.0.4
 
-  web-streams-polyfill@3.3.3: {}
+  web-streams-polyfill@3.3.3:
+    optional: true
 
-  webidl-conversions@3.0.1: {}
+  webidl-conversions@3.0.1:
+    optional: true
 
   whatwg-url@5.0.0:
     dependencies:
       tr46: 0.0.3
       webidl-conversions: 3.0.1
+    optional: true
 
   which-boxed-primitive@1.1.1:
     dependencies:
@@ -7662,7 +7683,8 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.19.0: {}
+  ws@8.19.0:
+    optional: true
 
   xmlbuilder@15.1.1: {}
 
@@ -7693,8 +7715,8 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod-validation-error@4.0.2(zod@4.3.6):
+  zod-validation-error@4.0.2(zod@3.25.76):
     dependencies:
-      zod: 4.3.6
+      zod: 3.25.76
 
-  zod@4.3.6: {}
+  zod@3.25.76: {}
