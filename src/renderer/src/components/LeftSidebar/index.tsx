@@ -30,8 +30,10 @@ export interface NavItem extends Bookmark {}
 export interface NavGroup {
   id: number
   title: string
+  icon?: string | null
   items: NavItem[]
   order: number
+  isDefault: number
 }
 
 export interface LeftSidebarRef {
@@ -96,7 +98,15 @@ const SortableItem = ({ item, isActive, onClick, onEdit, onDelete, searchText }:
       <div className="sidebar__item-drag-handle" {...attributes} {...listeners}>
         <HolderOutlined style={{ fontSize: 10, cursor: 'grab' }} />
       </div>
-      <span className="sidebar__item-icon">{item.type === 3 ? <AppstoreOutlined /> : <GlobalOutlined />}</span>
+      <span className="sidebar__item-icon">
+        {item.icon && item.icon.startsWith('data:image') ? (
+          <img src={item.icon} style={{ width: 14, height: 14, borderRadius: 2 }} alt="" />
+        ) : item.type === 3 ? (
+          <AppstoreOutlined />
+        ) : (
+          <GlobalOutlined />
+        )}
+      </span>
       <span className="sidebar__item-label">
         <HighlightText text={item.name} highlight={searchText} />
       </span>
@@ -113,22 +123,24 @@ const SortableItem = ({ item, isActive, onClick, onEdit, onDelete, searchText }:
             <EditOutlined style={{ fontSize: 10 }} />
           </button>
         </Tooltip>
-        <Popconfirm
-          title="确定删除吗？"
-          onConfirm={(e) => {
-            e?.stopPropagation()
-            onDelete()
-          }}
-          onCancel={(e) => e?.stopPropagation()}
-          okText="确定"
-          cancelText="取消"
-        >
-          <Tooltip title="删除" mouseEnterDelay={0.5}>
-            <button className="sidebar__action-btn" onClick={(e) => e.stopPropagation()} style={{ width: 18, height: 18 }}>
-              <DeleteOutlined style={{ fontSize: 10 }} />
-            </button>
-          </Tooltip>
-        </Popconfirm>
+        {item.isDefault !== 1 && (
+          <Popconfirm
+            title="确定删除吗？"
+            onConfirm={(e) => {
+              e?.stopPropagation()
+              onDelete()
+            }}
+            onCancel={(e) => e?.stopPropagation()}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Tooltip title="删除" mouseEnterDelay={0.5}>
+              <button className="sidebar__action-btn" onClick={(e) => e.stopPropagation()} style={{ width: 18, height: 18 }}>
+                <DeleteOutlined style={{ fontSize: 10 }} />
+              </button>
+            </Tooltip>
+          </Popconfirm>
+        )}
       </div>
     </div>
   )
@@ -142,13 +154,14 @@ interface SortableGroupProps {
   onToggle: () => void
   onAddItem: () => void
   onEdit: () => void
+  onDelete: () => void
   onItemSelect: (item: Bookmark) => void
   onItemEdit: (item: Bookmark) => void
   onItemDelete: (item: Bookmark) => void
   searchText?: string
 }
 
-const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, onEdit, onItemSelect, onItemEdit, onItemDelete, searchText }: SortableGroupProps) => {
+const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, onEdit, onDelete, onItemSelect, onItemEdit, onItemDelete, searchText }: SortableGroupProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `group-${group.id}`, data: { type: 'group', group } })
 
   const isActuallyCollapsed = searchText
@@ -168,7 +181,13 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
           <HolderOutlined style={{ fontSize: 10, cursor: 'grab' }} />
         </div>
         <CaretDownOutlined className={`sidebar__group-arrow ${isActuallyCollapsed ? 'sidebar__group-arrow--collapsed' : ''}`} />
-        <FolderOutlined style={{ fontSize: 12, marginRight: 2 }} />
+        <FolderOutlined
+          style={{
+            fontSize: 12,
+            marginRight: 2,
+            color: group.icon && group.icon.startsWith('#') ? group.icon : 'inherit'
+          }}
+        />
         <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <HighlightText text={group.title} highlight={searchText} />
         </span>
@@ -198,6 +217,24 @@ const SortableGroup = ({ group, isCollapsed, activeItemId, onToggle, onAddItem, 
               <PlusOutlined style={{ fontSize: 10 }} />
             </button>
           </Tooltip>
+          {group.isDefault !== 1 && (
+            <Popconfirm
+              title="确定删除目录及其内容吗？"
+              onConfirm={(e) => {
+                e?.stopPropagation()
+                onDelete()
+              }}
+              onCancel={(e) => e?.stopPropagation()}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Tooltip title="删除目录" mouseEnterDelay={0.5}>
+                <button className="sidebar__action-btn" onClick={(e) => e.stopPropagation()} style={{ width: 18, height: 18 }}>
+                  <DeleteOutlined style={{ fontSize: 10 }} />
+                </button>
+              </Tooltip>
+            </Popconfirm>
+          )}
         </div>
       </div>
 
@@ -264,7 +301,9 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
     return folders.map((folder) => ({
       id: folder.id,
       title: folder.name,
+      icon: folder.icon,
       order: folder.order || 0,
+      isDefault: folder.isDefault,
       items: bookmarks.filter((b) => b.parentId === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0))
     }))
   }, [bookmarks])
@@ -338,8 +377,9 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
       await trpc.bookmark.delete.mutate({ id: item.id })
       message.success('删除成功')
       fetchBookmarks()
-    } catch (error) {
-      message.error('删除失败')
+    } catch (error: any) {
+      console.error('Delete error:', error)
+      message.error(error.message || '删除失败')
     }
   }
 
@@ -493,6 +533,7 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
                       onToggle={() => toggleGroup(group.id)}
                       onAddItem={() => handleAddItem(group.id)}
                       onEdit={() => handleEdit(bookmarks.find((b) => b.id === group.id)!)}
+                      onDelete={() => handleDelete(bookmarks.find((b) => b.id === group.id)!)}
                       onItemSelect={(item) => onItemSelect?.(item)}
                       onItemEdit={handleEdit}
                       onItemDelete={handleDelete}

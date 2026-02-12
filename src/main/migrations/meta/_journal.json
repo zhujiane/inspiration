@@ -15,6 +15,13 @@
       "when": 1770800551997,
       "tag": "0001_eager_mimic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1770862997414,
+      "tag": "0002_yielding_slyde",
+      "breakpoints": true
     }
   ]
 }

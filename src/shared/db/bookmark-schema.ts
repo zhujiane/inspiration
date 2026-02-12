@@ -12,16 +12,19 @@ export const bookmarks = sqliteTable('bookmarks', {
   storage: text('storage'), // 浏览器的session ，cookie ，localstorage ，转成json
   userDataPath: text('userDataPath'), // 浏览器持久化到本地的路径
   status: integer('status').notNull().default(0), // 待定
-  description: text('description')
+  description: text('description'),
+  icon: text('icon'),
+  isDefault: integer('isDefault').notNull().default(0), // 0=用户创建，1=系统默认
 })
 
 export type Bookmark = typeof bookmarks.$inferSelect
 export type NewBookmark = typeof bookmarks.$inferInsert
 
-// 基于 drizzle-zod 的更新 schema，去掉自动维护的时间字段
+// 基于 drizzle-zod 的更新 schema，去掉自动维护的时间字段和系统标识
 const baseUpdateSchema = createUpdateSchema(bookmarks).omit({
   createdAt: true,
-  updatedAt: true
+  updatedAt: true,
+  isDefault: true
 })
 
 // 更新时：必须带 id，其它字段可选
