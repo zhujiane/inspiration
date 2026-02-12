@@ -17,10 +17,7 @@ import { trpc } from './lib/trpc'
 /* ============================================================
    Demo Data
    ============================================================ */
-const DEMO_TABS: Tab[] = [
-  { id: 'tab-1', title: '抖音', url: 'https://www.douyin.com' },
-  { id: 'tab-2', title: '小红书', url: 'https://www.xiaohongshu.com' }
-]
+const DEMO_TABS: Tab[] = []
 
 // No longer used as Sidebar handles its own data
 
@@ -333,12 +330,33 @@ function App(): React.JSX.Element {
               onReload={() => mainContentRef.current?.reload()}
               onUrlChange={setUrl}
               onUrlSubmit={(u) => {
+                if (!u) return
                 let formattedUrl = u
-                if (u && !u.startsWith('http://') && !u.startsWith('https://')) {
-                  formattedUrl = 'https://' + u
+                // Basic URL detection: starts with protocol, or looks like a domain/IP (contains dot, etc)
+                const isUrl = /^(https?:\/\/)|(localhost)|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})/.test(u)
+                if (isUrl) {
+                  if (!u.startsWith('http://') && !u.startsWith('https://')) {
+                    formattedUrl = 'https://' + u
+                  }
+                } else {
+                  // If not a URL, use search
+                  formattedUrl = `https://www.google.com/search?q=${encodeURIComponent(u)}`
                 }
+
                 setUrl(formattedUrl)
-                mainContentRef.current?.loadURL(formattedUrl)
+
+                if (tabs.length === 0) {
+                  const newTab: Tab = {
+                    id: `tab-${Date.now()}`,
+                    title: '新标签页',
+                    url: formattedUrl,
+                    userDataPath: 'default'
+                  }
+                  setTabs([newTab])
+                  setActiveTabId(newTab.id)
+                } else {
+                  mainContentRef.current?.loadURL(formattedUrl)
+                }
               }}
               onToggleFavorite={handleToggleFavorite}
               onTabSelect={handleTabSelect}

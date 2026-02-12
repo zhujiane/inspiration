@@ -96,7 +96,7 @@ export default function TitleBar({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter') {
-      onUrlSubmit?.(url)
+      onUrlSubmit?.(e.currentTarget.value)
     }
   }
 

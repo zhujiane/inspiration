@@ -20,30 +20,34 @@ export interface MainContentRef {
 const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, activeTabId, onWebviewEvent }, ref) => {
   const webviewRefs = useRef<{ [key: string]: any }>({})
 
-  useImperativeHandle(ref, () => ({
-    goBack: () => {
-      const webview = webviewRefs.current[activeTabId]
-      if (webview?.canGoBack()) webview.goBack()
-    },
-    goForward: () => {
-      const webview = webviewRefs.current[activeTabId]
-      if (webview?.canGoForward()) webview.goForward()
-    },
-    reload: () => {
-      const webview = webviewRefs.current[activeTabId]
-      if (webview) webview.reload()
-    },
-    loadURL: (url: string) => {
-      const webview = webviewRefs.current[activeTabId]
-      if (webview) webview.loadURL(url)
-    },
-    getCanGoBack: () => {
-      return webviewRefs.current[activeTabId]?.canGoBack() || false
-    },
-    getCanGoForward: () => {
-      return webviewRefs.current[activeTabId]?.canGoForward() || false
-    }
-  }))
+  useImperativeHandle(
+    ref,
+    () => ({
+      goBack: () => {
+        const webview = webviewRefs.current[activeTabId]
+        if (webview?.canGoBack()) webview.goBack()
+      },
+      goForward: () => {
+        const webview = webviewRefs.current[activeTabId]
+        if (webview?.canGoForward()) webview.goForward()
+      },
+      reload: () => {
+        const webview = webviewRefs.current[activeTabId]
+        if (webview) webview.reload()
+      },
+      loadURL: (url: string) => {
+        const webview = webviewRefs.current[activeTabId]
+        if (webview) webview.loadURL(url)
+      },
+      getCanGoBack: () => {
+        return webviewRefs.current[activeTabId]?.canGoBack() || false
+      },
+      getCanGoForward: () => {
+        return webviewRefs.current[activeTabId]?.canGoForward() || false
+      }
+    }),
+    [activeTabId]
+  )
 
   useEffect(() => {
     // Register event listeners for all webviews
