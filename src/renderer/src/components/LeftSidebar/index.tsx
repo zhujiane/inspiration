@@ -298,6 +298,18 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
     })
   }
 
+  const isAllCollapsed = useMemo(() => {
+    return groups.length > 0 && groups.every((g) => collapsedGroups.has(g.id))
+  }, [groups, collapsedGroups])
+
+  const toggleAllGroups = () => {
+    if (isAllCollapsed) {
+      setCollapsedGroups(new Set())
+    } else {
+      setCollapsedGroups(new Set(groups.map((g) => g.id)))
+    }
+  }
+
   const handleAddGroup = () => {
     setEditingItem({ type: 1, parentId: 0, order: groups.length })
     form.setFieldsValue({ name: '', type: 1, url: '' })
@@ -451,6 +463,11 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
               />
             </div>
             <div className="sidebar__actions">
+              <Tooltip title={isAllCollapsed ? '全部展开' : '全部收起'} mouseEnterDelay={0.5}>
+                <button className="sidebar__action-btn" onClick={toggleAllGroups} aria-label={isAllCollapsed ? '全部展开' : '全部收起'}>
+                  <CaretDownOutlined style={{ transform: isAllCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+              </Tooltip>
               <Tooltip title="新建目录" mouseEnterDelay={0.5}>
                 <button className="sidebar__action-btn" onClick={handleAddGroup} aria-label="新建目录">
                   <AppstoreAddOutlined />

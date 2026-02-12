@@ -373,7 +373,7 @@
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   transition:
     width var(--transition-base),
     min-width var(--transition-base);
@@ -654,7 +654,7 @@
   border-left: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   transition:
     width var(--transition-base),
     min-width var(--transition-base);

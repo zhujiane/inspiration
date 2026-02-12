@@ -4,7 +4,6 @@ import type { MenuProps } from 'antd'
 import {
   LeftOutlined,
   RightOutlined,
-  HomeOutlined,
   ReloadOutlined,
   StarOutlined,
   StarFilled,
@@ -33,7 +32,6 @@ interface TitleBarProps {
   isFavorited: boolean
   onBack?: () => void
   onForward?: () => void
-  onHome?: () => void
   onReload?: () => void
   onUrlChange?: (url: string) => void
   onUrlSubmit?: (url: string) => void
@@ -59,7 +57,6 @@ export default function TitleBar({
   isFavorited,
   onBack,
   onForward,
-  onHome,
   onReload,
   onUrlChange,
   onUrlSubmit,
@@ -151,11 +148,6 @@ export default function TitleBar({
         <Tooltip title="前进" mouseEnterDelay={0.5}>
           <button className={`title-bar__nav-btn ${!canGoForward ? 'title-bar__nav-btn--disabled' : ''}`} onClick={onForward} aria-label="前进">
             <RightOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="首页" mouseEnterDelay={0.5}>
-          <button className="title-bar__nav-btn" onClick={onHome} aria-label="首页">
-            <HomeOutlined />
           </button>
         </Tooltip>
         <Tooltip title="刷新" mouseEnterDelay={0.5}>

@@ -323,10 +323,6 @@ function App(): React.JSX.Element {
               canGoForward={canGoForward}
               onBack={() => mainContentRef.current?.goBack()}
               onForward={() => mainContentRef.current?.goForward()}
-              onHome={() => {
-                setUrl('')
-                mainContentRef.current?.loadURL('about:blank')
-              }}
               onReload={() => mainContentRef.current?.reload()}
               onUrlChange={setUrl}
               onUrlSubmit={(u) => {
