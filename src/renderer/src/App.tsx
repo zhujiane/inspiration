@@ -364,9 +364,9 @@ function App(): React.JSX.Element {
                 setTabs((prev) => prev.filter((t) => t.id === activeTabId))
               }}
               onMenuClick={(k) => console.log('Menu:', k)}
-              onMinimize={() => window.electron?.ipcRenderer.send('window-minimize')}
-              onMaximize={() => window.electron?.ipcRenderer.send('window-maximize')}
-              onClose={() => window.electron?.ipcRenderer.send('window-close')}
+              onMinimize={() => trpc.system.minimize.mutate()}
+              onMaximize={() => trpc.system.maximize.mutate()}
+              onClose={() => trpc.system.close.mutate()}
             />
 
             {/* 3. Content area: MainContent + SnifferPanel */}
