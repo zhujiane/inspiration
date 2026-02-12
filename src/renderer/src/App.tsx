@@ -100,7 +100,7 @@ function App(): React.JSX.Element {
   // --- Title Bar State ---
   const [tabs, setTabs] = useState<Tab[]>(DEMO_TABS)
   const [activeTabId, setActiveTabId] = useState('tab-1')
-  const [url, setUrl] = useState('https://www.douyin.com')
+  const [url, setUrl] = useState('')
 
   // --- Sidebar State ---
   const sidebarRef = useRef<LeftSidebarRef>(null)
@@ -399,7 +399,7 @@ function App(): React.JSX.Element {
         </div>
 
         {/* Bookmark Create Modal */}
-        <Modal title="添加收藏" open={isBookmarkModalVisible} onOk={handleBookmarkSubmit} onCancel={() => setIsBookmarkModalVisible(false)} okText="添加" cancelText="取消" destroyOnClose>
+        <Modal title="添加收藏" open={isBookmarkModalVisible} onOk={handleBookmarkSubmit} onCancel={() => setIsBookmarkModalVisible(false)} okText="添加" cancelText="取消" destroyOnHidden>
           <Form form={bookmarkForm} layout="vertical">
             <Form.Item name="name" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
               <Input />

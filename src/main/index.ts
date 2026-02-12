@@ -19,7 +19,8 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       sandbox: false,
-      webviewTag: true
+      webviewTag: true,
+      webSecurity: false
     }
   })
 
