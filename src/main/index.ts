@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import icon from '../renderer/src/assets/icon.svg?asset'
 import { initDb } from './db'
 import { setupTRPC } from './trpc'
 

@@ -19,6 +19,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { trpc } from '../../lib/trpc'
+import iconSvg from '../../assets/icon.svg'
 import type { Bookmark } from '@shared/db/bookmark-schema'
 
 /* ============================================================
@@ -486,7 +487,7 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
         <>
           <div className="sidebar__brand">
             <div className="sidebar__brand-icon">
-              <AppstoreOutlined style={{ color: '#fff', fontSize: 12 }} />
+              <img src={iconSvg} alt="Inspiration" style={{ width: 14, height: 14 }} />
             </div>
             <span className="sidebar__brand-name">Inspiration</span>
           </div>
@@ -595,6 +596,9 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(({ activeItemId
         .sidebar__group-drag-handle, .sidebar__item-drag-handle {
           display: flex;
           align-items: center;
+          justify-content: center;
+          width: 14px;
+          height: 16px;
           opacity: 0;
           transition: opacity 0.2s;
           color: var(--color-text-quaternary);

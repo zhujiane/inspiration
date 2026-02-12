@@ -404,7 +404,7 @@
   width: 20px;
   height: 20px;
   border-radius: var(--border-radius-sm);
-  background: linear-gradient(135deg, #1677ff, #4096ff);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -416,6 +416,7 @@
   font-weight: 600;
   color: var(--color-text);
   letter-spacing: -0.2px;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -491,6 +492,7 @@
   padding: 4px 10px;
   font-size: var(--font-size-xs);
   font-weight: 600;
+  line-height: 16px;
   color: var(--color-text-secondary);
   cursor: pointer;
   transition: background var(--transition-fast);
@@ -551,10 +553,13 @@
 }
 
 .sidebar__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 14px;
   flex-shrink: 0;
   width: 16px;
-  text-align: center;
+  height: 16px;
 }
 
 .sidebar__item-label {
@@ -562,6 +567,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 16px;
+}
+
+.sidebar__item-icon > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sidebar__item-actions {
