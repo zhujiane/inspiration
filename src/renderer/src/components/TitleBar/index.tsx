@@ -252,22 +252,6 @@ export default function TitleBar({
 
       <div className="title-bar__divider" />
 
-      {/* 1.5 Function Menus */}
-      {/* <div className="title-bar__menus">
-        <button className="title-bar__menu-btn" onClick={() => onMenuClick?.('material')} id="menu-material">
-          <AppstoreOutlined style={{ fontSize: 12 }} />
-          <span>素材</span>
-        </button>
-        <button className="title-bar__menu-btn" onClick={() => onMenuClick?.('system')} id="menu-system">
-          <SettingOutlined style={{ fontSize: 12 }} />
-          <span>系统</span>
-        </button>
-        <button className="title-bar__menu-btn" onClick={() => onMenuClick?.('user')} id="menu-user">
-          <UserOutlined style={{ fontSize: 12 }} />
-          <span>用户</span>
-        </button>
-      </div> */}
-
       {/* 1.6 Window Controls */}
       <div className="title-bar__window-controls">
         <button className="title-bar__win-btn" onClick={onMinimize} aria-label="最小化" id="win-minimize">
