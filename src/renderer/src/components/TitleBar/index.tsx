@@ -142,12 +142,20 @@ export default function TitleBar({
       {/* 1.2 Navigation — aligned with webview */}
       <nav className="title-bar__nav" aria-label="浏览器导航">
         <Tooltip title="后退" mouseEnterDelay={0.5}>
-          <button className={`title-bar__nav-btn ${!canGoBack ? 'title-bar__nav-btn--disabled' : ''}`} onClick={onBack} aria-label="后退">
+          <button
+            className={`title-bar__nav-btn ${!canGoBack ? 'title-bar__nav-btn--disabled' : ''}`}
+            onClick={onBack}
+            aria-label="后退"
+          >
             <LeftOutlined />
           </button>
         </Tooltip>
         <Tooltip title="前进" mouseEnterDelay={0.5}>
-          <button className={`title-bar__nav-btn ${!canGoForward ? 'title-bar__nav-btn--disabled' : ''}`} onClick={onForward} aria-label="前进">
+          <button
+            className={`title-bar__nav-btn ${!canGoForward ? 'title-bar__nav-btn--disabled' : ''}`}
+            onClick={onForward}
+            aria-label="前进"
+          >
             <RightOutlined />
           </button>
         </Tooltip>
@@ -177,7 +185,12 @@ export default function TitleBar({
             style={searchFocused ? { flex: 1 } : undefined}
           />
           <Tooltip title={isFavorited ? '取消收藏' : '收藏'} mouseEnterDelay={0.5}>
-            <button className={`title-bar__fav-btn ${isFavorited ? 'title-bar__fav-btn--active' : ''}`} onClick={onToggleFavorite} aria-label="收藏">
+            <button
+              className={`title-bar__fav-btn ${isFavorited ? 'title-bar__fav-btn--active' : ''} ${!url ? 'title-bar__fav-btn--disabled' : ''}`}
+              onClick={url ? onToggleFavorite : undefined}
+              disabled={!url}
+              aria-label="收藏"
+            >
               {isFavorited ? <StarFilled /> : <StarOutlined />}
             </button>
           </Tooltip>
@@ -189,13 +202,22 @@ export default function TitleBar({
       {/* 1.4 Tabs — hidden scrollbar with arrow buttons */}
       <div className="title-bar__tabs">
         {showLeftArrow && (
-          <button className="title-bar__tabs-arrow title-bar__tabs-arrow--left" onClick={scrollTabsLeft} aria-label="向左滚动标签">
+          <button
+            className="title-bar__tabs-arrow title-bar__tabs-arrow--left"
+            onClick={scrollTabsLeft}
+            aria-label="向左滚动标签"
+          >
             <LeftOutlined />
           </button>
         )}
         <div className="title-bar__tabs-scroll" ref={tabsScrollRef} onWheel={handleTabsWheel}>
           {tabs.map((tab) => (
-            <div key={tab.id} className={`title-bar__tab ${tab.id === activeTabId ? 'title-bar__tab--active' : ''}`} onClick={() => onTabSelect?.(tab.id)} title={tab.title}>
+            <div
+              key={tab.id}
+              className={`title-bar__tab ${tab.id === activeTabId ? 'title-bar__tab--active' : ''}`}
+              onClick={() => onTabSelect?.(tab.id)}
+              title={tab.title}
+            >
               {tab.favicon && <img src={tab.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2 }} />}
               <span className="title-bar__tab-title">{tab.title}</span>
               <button
@@ -212,7 +234,11 @@ export default function TitleBar({
           ))}
         </div>
         {showRightArrow && (
-          <button className="title-bar__tabs-arrow title-bar__tabs-arrow--right" onClick={scrollTabsRight} aria-label="向右滚动标签">
+          <button
+            className="title-bar__tabs-arrow title-bar__tabs-arrow--right"
+            onClick={scrollTabsRight}
+            aria-label="向右滚动标签"
+          >
             <RightOutlined />
           </button>
         )}
@@ -231,7 +257,7 @@ export default function TitleBar({
       <div className="title-bar__divider" />
 
       {/* 1.5 Function Menus */}
-      <div className="title-bar__menus">
+      {/* <div className="title-bar__menus">
         <button className="title-bar__menu-btn" onClick={() => onMenuClick?.('material')} id="menu-material">
           <AppstoreOutlined style={{ fontSize: 12 }} />
           <span>素材</span>
@@ -244,7 +270,7 @@ export default function TitleBar({
           <UserOutlined style={{ fontSize: 12 }} />
           <span>用户</span>
         </button>
-      </div>
+      </div> */}
 
       {/* 1.6 Window Controls */}
       <div className="title-bar__window-controls">
@@ -254,7 +280,12 @@ export default function TitleBar({
         <button className="title-bar__win-btn" onClick={onMaximize} aria-label="最大化" id="win-maximize">
           <ExpandOutlined />
         </button>
-        <button className="title-bar__win-btn title-bar__win-btn--close" onClick={onClose} aria-label="关闭" id="win-close">
+        <button
+          className="title-bar__win-btn title-bar__win-btn--close"
+          onClick={onClose}
+          aria-label="关闭"
+          id="win-close"
+        >
           <CloseOutlined />
         </button>
       </div>

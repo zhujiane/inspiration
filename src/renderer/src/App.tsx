@@ -123,8 +123,9 @@ function App(): React.JSX.Element {
   const [bookmarkForm] = Form.useForm()
 
   const getCanonicalUrl = (u: string) => {
+    if (!u || !u.includes('.')) return u // Fast path for non-URLs
     try {
-      const urlObj = new URL(u)
+      const urlObj = new URL(u.startsWith('http') ? u : `https://${u}`)
       return urlObj.origin + urlObj.pathname
     } catch {
       return u
@@ -142,7 +143,7 @@ function App(): React.JSX.Element {
   }, [])
 
   const currentBookmark = useMemo(() => {
-    if (!url) return null
+    if (!url || !url.includes('.')) return null
     const canonicalUrl = getCanonicalUrl(url)
     return allBookmarks.find((b) => b.type === 2 && b.url && getCanonicalUrl(b.url) === canonicalUrl)
   }, [url, allBookmarks])
@@ -189,7 +190,7 @@ function App(): React.JSX.Element {
     (id: string) => {
       setActiveTabId(id)
       const tab = tabs.find((t) => t.id === id)
-      if (tab?.url) setUrl(tab.url)
+      setUrl(tab?.url || '')
     },
     [tabs]
   )
@@ -198,9 +199,11 @@ function App(): React.JSX.Element {
     (id: string) => {
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== id)
-        if (id === activeTabId && next.length > 0) {
+        if (next.length === 0) {
+          setUrl('')
+        } else if (id === activeTabId && next.length > 0) {
           setActiveTabId(next[0].id)
-          if (next[0].url) setUrl(next[0].url)
+          setUrl(next[0].url || '')
         }
         return next
       })
@@ -323,14 +326,26 @@ function App(): React.JSX.Element {
   }, [])
 
   // Filter resources by search
-  const filteredResources = snifferSearch ? resources.filter((r) => r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())) : resources
+  const filteredResources = snifferSearch
+    ? resources.filter(
+        (r) =>
+          r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
+      )
+    : resources
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntdApp style={{ height: '100%' }}>
         <div className="app-shell">
           {/* 1. Left Sidebar — full height */}
-          <LeftSidebar ref={sidebarRef} activeItemId={activeNavId} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((p) => !p)} onItemSelect={handleNavSelect} />
+          <LeftSidebar
+            ref={sidebarRef}
+            activeItemId={activeNavId}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed((p) => !p)}
+            onItemSelect={handleNavSelect}
+            onUpdate={fetchBookmarkGroups}
+          />
 
           {/* Right body: TitleBar + Content + StatusBar */}
           <div className="app-body">
@@ -350,7 +365,10 @@ function App(): React.JSX.Element {
                 if (!u) return
                 let formattedUrl = u
                 // Basic URL detection: starts with protocol, or looks like a domain/IP (contains dot, etc)
-                const isUrl = /^(https?:\/\/)|(localhost)|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})/.test(u)
+                const isUrl =
+                  /^(https?:\/\/)|(localhost)|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})/.test(
+                    u
+                  )
                 if (isUrl) {
                   if (!u.startsWith('http://') && !u.startsWith('https://')) {
                     formattedUrl = 'https://' + u
@@ -379,7 +397,10 @@ function App(): React.JSX.Element {
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}
               onTabAdd={handleTabAdd}
-              onCloseAll={() => setTabs([])}
+              onCloseAll={() => {
+                setTabs([])
+                setUrl('')
+              }}
               onCloseRight={() => {}}
               onCloseOthers={() => {
                 setTabs((prev) => prev.filter((t) => t.id === activeTabId))
@@ -392,7 +413,12 @@ function App(): React.JSX.Element {
 
             {/* 3. Content area: MainContent + SnifferPanel */}
             <div className="app-content">
-              <MainContent ref={mainContentRef} tabs={tabs} activeTabId={activeTabId} onWebviewEvent={handleWebviewEvent} />
+              <MainContent
+                ref={mainContentRef}
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onWebviewEvent={handleWebviewEvent}
+              />
 
               {/* 4. Right Sniffer Panel */}
               <SnifferPanel
@@ -420,7 +446,15 @@ function App(): React.JSX.Element {
         </div>
 
         {/* Bookmark Create Modal */}
-        <Modal title="添加收藏" open={isBookmarkModalVisible} onOk={handleBookmarkSubmit} onCancel={() => setIsBookmarkModalVisible(false)} okText="添加" cancelText="取消" destroyOnHidden>
+        <Modal
+          title="添加收藏"
+          open={isBookmarkModalVisible}
+          onOk={handleBookmarkSubmit}
+          onCancel={() => setIsBookmarkModalVisible(false)}
+          okText="添加"
+          cancelText="取消"
+          destroyOnHidden
+        >
           <Form form={bookmarkForm} layout="vertical">
             <Form.Item name="name" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
               <Input />
@@ -437,7 +471,11 @@ function App(): React.JSX.Element {
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item name="userDataPath" label="持久化目录 (Partition)" tooltip="每个标签页可以拥有独立的持久化数据，留空则使用默认配置">
+            <Form.Item
+              name="userDataPath"
+              label="持久化目录 (Partition)"
+              tooltip="每个标签页可以拥有独立的持久化数据，留空则使用默认配置"
+            >
               <Input placeholder="输入持久化标识，例如: user1" />
             </Form.Item>
           </Form>

@@ -9,14 +9,36 @@ import { z } from 'zod'
 async function fetchFaviconAsBase64(url: string): Promise<string | null> {
   try {
     const domain = new URL(url).hostname
-    const iconUrl = `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=16`
-    const response = await fetch(iconUrl)
-    if (!response.ok) return null
-    const arrayBuffer = await response.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
-    return `data:image/png;base64,${base64}`
+    const sources = [
+      `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=16`,
+      `https://icons.duckduckgo.com/ip3/${domain}.ico`
+    ]
+
+    const controller = new AbortController()
+    const { signal } = controller
+
+    const fetchOne = async (iconUrl: string) => {
+      try {
+        const response = await fetch(iconUrl, { signal })
+        if (!response.ok) throw new Error('Failed to fetch')
+        const arrayBuffer = await response.arrayBuffer()
+        const base64 = Buffer.from(arrayBuffer).toString('base64')
+        const contentType = response.headers.get('content-type') || 'image/x-icon'
+        
+        // 成功获取到一个后，终止其他请求
+        controller.abort()
+        
+        return `data:${contentType};base64,${base64}`
+      } catch (error: any) {
+        if (error.name === 'AbortError') throw error
+        throw new Error(`Failed to fetch from ${iconUrl}`)
+      }
+    }
+
+    // Promise.any 返回第一个成功的结果
+    return await Promise.any(sources.map(fetchOne))
   } catch (error) {
-    console.error('Failed to fetch favicon:', error)
+    // console.error('Failed to fetch favicon from all sources:', error)
     return null
   }
 }
