@@ -10,7 +10,7 @@ export function setupTRPC(): void {
     try {
       // 创建一个内部调用者
       const caller = appRouter.createCaller({})
-      
+
       // 处理嵌套路径，例如 "resource.list"
       const pathParts = path.split('.')
       let procedure: any = caller

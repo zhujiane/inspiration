@@ -222,6 +222,26 @@ function App(): React.JSX.Element {
 
   const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
+
+    // Handle special local apps
+    if (item.type === 3 && (item.name === '素材管理' || item.name === '素材中心')) {
+      setTabs((prev) => {
+        const existing = prev.find((t) => t.type === 'resource')
+        if (existing) {
+          setActiveTabId(existing.id)
+          return prev
+        }
+        const newTab: Tab = {
+          id: `tab-resource`,
+          title: '素材管理',
+          type: 'resource'
+        }
+        setActiveTabId(newTab.id)
+        return [...prev, newTab]
+      })
+      return
+    }
+
     if (item.url) {
       setUrl(item.url)
       // Also update or create a tab
@@ -235,7 +255,8 @@ function App(): React.JSX.Element {
           id: `tab-${Date.now()}`,
           title: item.name,
           url: item.url || '',
-          userDataPath: item.userDataPath || 'default'
+          userDataPath: item.userDataPath || 'default',
+          type: 'webview'
         }
         setActiveTabId(newTab.id)
         return [...prev, newTab]

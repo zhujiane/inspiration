@@ -5,9 +5,13 @@ import { base } from './base'
 export const resources = sqliteTable('resources', {
   ...base,
   name: text('name').notNull(),
-  type: text('type').notNull(),
+  type: text('type').notNull(), // 视频，音频，文章，图片，文本，其他
   url: text('url'),
-  description: text('description')
+  description: text('description'),
+  localPath: text('local_path'),
+  platform: text('platform'),
+  cover: text('cover'),
+  metadata: text('metadata') // JSON string containing size, width, height, duration, encoding, md5, etc.
 })
 
 export type Resource = typeof resources.$inferSelect

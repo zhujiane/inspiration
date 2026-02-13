@@ -14,7 +14,7 @@ export const bookmarks = sqliteTable('bookmarks', {
   status: integer('status').notNull().default(0), // 待定
   description: text('description'),
   icon: text('icon'),
-  isDefault: integer('isDefault').notNull().default(0), // 0=用户创建，1=系统默认
+  isDefault: integer('isDefault').notNull().default(0) // 0=用户创建，1=系统默认
 })
 
 export type Bookmark = typeof bookmarks.$inferSelect
@@ -34,6 +34,6 @@ export const bookmarkUpdateSchema = baseUpdateSchema.required({
 
 // 创建时：不带 id，且 name / type 必填
 export const bookmarkCreateSchema = baseUpdateSchema.omit({ id: true }).required({
-  name: true,
+  name: true
 })
 export const bookmarkSelectSchema = createSelectSchema(bookmarks)

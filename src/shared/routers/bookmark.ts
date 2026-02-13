@@ -82,7 +82,7 @@ export const bookmarkRouter = trpc.router({
   delete: publicProcedure.input(idSchema).mutation(async ({ input }) => {
     // 检查是否为系统默认项目
     const [bookmark] = await db.select().from(bookmarks).where(eq(bookmarks.id, input.id)).limit(1)
-    
+
     if (bookmark && bookmark.isDefault === 1) {
       throw new BizError('系统默认项目，不能删除', 400)
     }

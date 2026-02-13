@@ -1,6 +1,7 @@
 import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { GlobalOutlined } from '@ant-design/icons'
 import type { Tab } from '../TitleBar'
+import ResourcePage from '../../pages/resource'
 
 interface MainContentProps {
   tabs: Tab[]
@@ -25,25 +26,25 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
     () => ({
       goBack: () => {
         const webview = webviewRefs.current[activeTabId]
-        if (webview?.canGoBack()) webview.goBack()
+        if (webview?.canGoBack?.()) webview.goBack()
       },
       goForward: () => {
         const webview = webviewRefs.current[activeTabId]
-        if (webview?.canGoForward()) webview.goForward()
+        if (webview?.canGoForward?.()) webview.goForward()
       },
       reload: () => {
         const webview = webviewRefs.current[activeTabId]
-        if (webview) webview.reload()
+        if (webview?.reload) webview.reload()
       },
       loadURL: (url: string) => {
         const webview = webviewRefs.current[activeTabId]
-        if (webview) webview.loadURL(url)
+        if (webview?.loadURL) webview.loadURL(url)
       },
       getCanGoBack: () => {
-        return webviewRefs.current[activeTabId]?.canGoBack() || false
+        return webviewRefs.current[activeTabId]?.canGoBack?.() || false
       },
       getCanGoForward: () => {
-        return webviewRefs.current[activeTabId]?.canGoForward() || false
+        return webviewRefs.current[activeTabId]?.canGoForward?.() || false
       }
     }),
     [activeTabId]
@@ -56,7 +57,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
 
     Object.keys(currentRefs).forEach((tabId) => {
       const webview = currentRefs[tabId]
-      if (!webview) return
+      if (!webview || !webview.addEventListener) return
 
       const handleEvent = (e: any) => {
         onWebviewEvent?.(tabId, e)
@@ -76,7 +77,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
       Object.keys(currentRefs).forEach((tabId) => {
         const webview = currentRefs[tabId]
         const handler = handlers[tabId]
-        if (webview && handler) {
+        if (webview && handler && webview.removeEventListener) {
           webview.removeEventListener('did-start-loading', handler)
           webview.removeEventListener('did-stop-loading', handler)
           webview.removeEventListener('did-navigate', handler)
@@ -106,6 +107,15 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
       <div className="main-content__webview-container">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
+
+          if (tab.type === 'resource') {
+            return (
+              <div key={tab.id} style={{ display: isActive ? 'block' : 'none', height: '100%', width: '100%', overflow: 'auto' }}>
+                <ResourcePage />
+              </div>
+            )
+          }
+
           return (
             <webview
               key={tab.id}

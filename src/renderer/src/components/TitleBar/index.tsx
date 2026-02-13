@@ -23,6 +23,7 @@ export interface Tab {
   url?: string
   favicon?: string
   userDataPath?: string
+  type?: 'webview' | 'resource' | 'system'
 }
 
 interface TitleBarProps {
