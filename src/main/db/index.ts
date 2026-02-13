@@ -4,12 +4,15 @@ import { app } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import * as schema from '@shared/db/index'
+import log from '../logger'
 
 // 根据环境选择数据库路径
 // dev: 使用项目根目录
 // prod: 使用用户数据目录
 export const getDbPath = (): string => {
-  return is.dev ? join(process.cwd(), './out/db.sqlite') : join(app.getPath('userData'), 'db.sqlite')
+  const dbPath = is.dev ? join(process.cwd(), './out/db.sqlite') : join(app.getPath('userData'), 'db.sqlite')
+  log.info(`Database path: ${dbPath}`)
+  return dbPath
 }
 
 // 创建 better-sqlite3 数据库实例
@@ -18,13 +21,11 @@ const sqlite = new Database(getDbPath())
 // 创建 drizzle 实例
 export const db = drizzle(sqlite, {
   schema,
-  logger: is.dev
-    ? {
-        logQuery(query, params) {
-          console.log('[Drizzle SQL]', query, params)
-        }
-      }
-    : false
+  logger: {
+    logQuery(query, params) {
+      log.debug('[SQL]', query, params)
+    }
+  }
 })
 
 export * from './seeds'

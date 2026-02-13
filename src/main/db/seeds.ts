@@ -4,16 +4,18 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { and, eq } from 'drizzle-orm'
 import * as schema from '@shared/db/index'
 import { db } from './index'
+import log from '../logger'
 
 // 初始化数据库表（使用 drizzle-kit 迁移）
 export async function initDb(): Promise<void> {
   try {
     // 迁移文件路径（兼容 dev/prod）
     const migrationsFolder = is.dev ? join(process.cwd(), 'src/main/migrations') : join(__dirname, 'migrations')
+    log.info(`Running migrations from: ${migrationsFolder}`)
 
     // 执行迁移
     await migrate(db, { migrationsFolder })
-    console.log('Database initialized successfully')
+    log.info('Migrations completed')
 
     // 初始化默认应用组
     // 1. 创建父级“应用”组
@@ -22,6 +24,7 @@ export async function initDb(): Promise<void> {
     })
 
     if (!appGroup) {
+      log.info('Creating default "App" group')
       const [inserted] = await db
         .insert(schema.bookmarks)
         .values({
@@ -53,11 +56,11 @@ export async function initDb(): Promise<void> {
 
       if (!existing) {
         await db.insert(schema.bookmarks).values(appItem)
-        console.log(`Created default app: ${appItem.name}`)
+        log.info(`Created default app: ${appItem.name}`)
       }
     }
   } catch (error) {
-    console.error('Failed to initialize database:', error)
+    log.error('Failed to initialize database:', error)
     throw error
   }
 }

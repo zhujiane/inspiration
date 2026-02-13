@@ -5,6 +5,7 @@ import ffmpegStatic from 'ffmpeg-static'
 import md5File from 'md5-file'
 import fs from 'fs'
 import path from 'path'
+import log from '../logger'
 
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
@@ -68,7 +69,7 @@ async function getFirstFrameToBase64(input: { path: string }) {
     command.on('error', (err) => {
       if (settled) return
       settled = true
-      console.error('Video screenshot error:', err)
+      log.error('Video screenshot error:', err)
       reject(err)
     })
 
@@ -88,7 +89,7 @@ async function getFirstFrameToBase64(input: { path: string }) {
     stream.on('error', (err: Error) => {
       if (settled) return
       settled = true
-      console.error('Video screenshot stream error:', err)
+      log.error('Video screenshot stream error:', err)
       reject(err)
     })
   })
@@ -134,7 +135,7 @@ export const ffmpegRouter = trpc.router({
         const mimeExt = ext === 'jpg' ? 'jpeg' : ext
         result.cover = `data:image/${mimeExt};base64,${base64}`
       } catch (err) {
-        console.error('Image read error:', err)
+        log.error('Image read error:', err)
       }
     }
 
@@ -145,7 +146,7 @@ export const ffmpegRouter = trpc.router({
         result.cover = coverBase64
       } catch (err) {
         // 如果截取封面失败，仅打印错误而不中断整体流程
-        console.error('Failed to capture video cover:', err)
+        log.error('Failed to capture video cover:', err)
       }
     }
 

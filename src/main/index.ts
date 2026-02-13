@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
 import { setupTRPC } from './trpc'
+import log, { initLogger } from './logger'
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
@@ -25,6 +26,7 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.on('ready-to-show', () => {
+    log.info('Main window ready to show')
     mainWindow.show()
   })
 
@@ -52,15 +54,17 @@ function createWindow(): BrowserWindow {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  initLogger()
+  log.info('App starting...')
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron.app')
 
   // 初始化数据库
   try {
     await initDb()
-    console.log('Database initialized')
+    log.info('Database initialized successfully')
   } catch (error) {
-    console.error('Failed to initialize database:', error)
+    log.error('Failed to initialize database:', error)
   }
 
   // Default open or close DevTools by F12 in development
@@ -87,7 +91,9 @@ app.whenReady().then(async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  log.info('App window-all-closed')
   if (process.platform !== 'darwin') {
     app.quit()
+    log.info('App quit')
   }
 })

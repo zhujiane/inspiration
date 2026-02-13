@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { appRouter } from './router'
+import log from './logger'
 
 /**
  * 设置自定义 tRPC IPC 处理器
@@ -7,6 +8,8 @@ import { appRouter } from './router'
  */
 export function setupTRPC(): void {
   ipcMain.handle('trpc-request', async (_event, { path, input }) => {
+    const startTime = Date.now()
+    log.info(`[tRPC Request] ${path}`, { input })
     try {
       // 创建一个内部调用者
       const caller = appRouter.createCaller({})
@@ -24,9 +27,15 @@ export function setupTRPC(): void {
 
       // 执行调用
       const result = await procedure(input)
+      const duration = Date.now() - startTime
+      log.debug(`[tRPC Success] ${path} - ${duration}ms`)
       return { result }
     } catch (error) {
-      console.error(`tRPC error at ${path}:`, error)
+      const duration = Date.now() - startTime
+      log.error(`[tRPC Error] ${path} - ${duration}ms`, {
+        error: error instanceof Error ? error.stack : error,
+        input
+      })
       return {
         error: {
           message: error instanceof Error ? error.message : 'Unknown error',
