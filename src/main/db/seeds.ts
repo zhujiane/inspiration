@@ -43,7 +43,12 @@ export async function initDb(): Promise<void> {
 
     for (const appItem of defaultApps) {
       const existing = await db.query.bookmarks.findFirst({
-        where: and(eq(schema.bookmarks.name, appItem.name), eq(schema.bookmarks.type, 3), eq(schema.bookmarks.isDefault, 1), eq(schema.bookmarks.parentId, appGroup.id))
+        where: and(
+          eq(schema.bookmarks.name, appItem.name),
+          eq(schema.bookmarks.type, 3),
+          eq(schema.bookmarks.isDefault, 1),
+          eq(schema.bookmarks.parentId, appGroup.id)
+        )
       })
 
       if (!existing) {

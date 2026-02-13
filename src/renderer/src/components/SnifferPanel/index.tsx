@@ -1,5 +1,13 @@
 import { Tooltip } from 'antd'
-import { CheckSquareOutlined, ClearOutlined, MergeCellsOutlined, ThunderboltOutlined, LeftOutlined, RightOutlined, FilterOutlined } from '@ant-design/icons'
+import {
+  CheckSquareOutlined,
+  ClearOutlined,
+  MergeCellsOutlined,
+  ThunderboltOutlined,
+  LeftOutlined,
+  RightOutlined,
+  FilterOutlined
+} from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
 
@@ -43,7 +51,11 @@ export default function SnifferPanel({
   return (
     <aside className={`sniffer-panel ${collapsed ? 'sniffer-panel--collapsed' : ''}`} id="sniffer-panel">
       {/* Toggle Handle */}
-      <button className="sniffer-panel__toggle" onClick={onToggle} aria-label={collapsed ? '展开嗅探面板' : '收起嗅探面板'}>
+      <button
+        className="sniffer-panel__toggle"
+        onClick={onToggle}
+        aria-label={collapsed ? '展开嗅探面板' : '收起嗅探面板'}
+      >
         {collapsed ? <LeftOutlined /> : <RightOutlined />}
       </button>
 
@@ -58,7 +70,11 @@ export default function SnifferPanel({
                 </button>
               </Tooltip>
               <Tooltip title="清空" mouseEnterDelay={0.5}>
-                <button className="sniffer-panel__toolbar-btn sniffer-panel__toolbar-btn--danger" onClick={onClearAll} aria-label="清空">
+                <button
+                  className="sniffer-panel__toolbar-btn sniffer-panel__toolbar-btn--danger"
+                  onClick={onClearAll}
+                  aria-label="清空"
+                >
                   <ClearOutlined />
                 </button>
               </Tooltip>

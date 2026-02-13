@@ -92,7 +92,10 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
   if (tabs.length === 0) {
     return (
       <main className="main-content" id="main-content">
-        <div className="main-content__webview-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          className="main-content__webview-container"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
           <div className="main-content__placeholder">
             <GlobalOutlined className="main-content__placeholder-icon" />
             <div className="main-content__placeholder-text">选择左侧导航或新建标签页开始浏览</div>
@@ -110,7 +113,10 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
 
           if (tab.type === 'resource') {
             return (
-              <div key={tab.id} style={{ display: isActive ? 'block' : 'none', height: '100%', width: '100%', overflow: 'auto' }}>
+              <div
+                key={tab.id}
+                style={{ display: isActive ? 'block' : 'none', height: '100%', width: '100%', overflow: 'auto' }}
+              >
                 <ResourcePage />
               </div>
             )

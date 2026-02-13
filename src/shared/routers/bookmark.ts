@@ -24,10 +24,10 @@ async function fetchFaviconAsBase64(url: string): Promise<string | null> {
         const arrayBuffer = await response.arrayBuffer()
         const base64 = Buffer.from(arrayBuffer).toString('base64')
         const contentType = response.headers.get('content-type') || 'image/x-icon'
-        
+
         // 成功获取到一个后，终止其他请求
         controller.abort()
-        
+
         return `data:${contentType};base64,${base64}`
       } catch (error: any) {
         if (error.name === 'AbortError') throw error

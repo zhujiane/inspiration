@@ -1,5 +1,14 @@
 import { Tooltip } from 'antd'
-import { DeleteOutlined, DownloadOutlined, EyeOutlined, CopyOutlined, PlayCircleOutlined, SoundOutlined, PictureOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  CopyOutlined,
+  PlayCircleOutlined,
+  SoundOutlined,
+  PictureOutlined,
+  VideoCameraOutlined
+} from '@ant-design/icons'
 
 export interface MediaResource {
   id: string
@@ -34,7 +43,14 @@ const typeLabels = {
   audio: '音频'
 }
 
-export default function MediaCard({ resource, onSelect, onDelete, onPreview, onDownload, onCopyUrl }: MediaCardProps): React.JSX.Element {
+export default function MediaCard({
+  resource,
+  onSelect,
+  onDelete,
+  onPreview,
+  onDownload,
+  onCopyUrl
+}: MediaCardProps): React.JSX.Element {
   return (
     <div className={`media-card ${resource.selected ? 'media-card--selected' : ''}`} id={`media-card-${resource.id}`}>
       {/* 4.4 Top — Checkbox only (always visible) */}
@@ -54,7 +70,15 @@ export default function MediaCard({ resource, onSelect, onDelete, onPreview, onD
         {resource.thumbnailUrl ? (
           <img src={resource.thumbnailUrl} alt={resource.title} loading="lazy" />
         ) : (
-          <span className="media-card__thumbnail-placeholder">{resource.type === 'video' ? <PlayCircleOutlined /> : resource.type === 'audio' ? <SoundOutlined /> : <PictureOutlined />}</span>
+          <span className="media-card__thumbnail-placeholder">
+            {resource.type === 'video' ? (
+              <PlayCircleOutlined />
+            ) : resource.type === 'audio' ? (
+              <SoundOutlined />
+            ) : (
+              <PictureOutlined />
+            )}
+          </span>
         )}
 
         {/* Type badge */}
@@ -68,7 +92,9 @@ export default function MediaCard({ resource, onSelect, onDelete, onPreview, onD
           <span className="media-card__overlay-text" title={resource.title}>
             {resource.title}
           </span>
-          <span className="media-card__overlay-text media-card__overlay-text--dim">{[resource.size, resource.resolution, resource.duration].filter(Boolean).join(' · ')}</span>
+          <span className="media-card__overlay-text media-card__overlay-text--dim">
+            {[resource.size, resource.resolution, resource.duration].filter(Boolean).join(' · ')}
+          </span>
         </div>
       </div>
 

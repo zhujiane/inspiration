@@ -5,7 +5,6 @@ import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
 import { setupTRPC } from './trpc'
 
-
 function createWindow(): BrowserWindow {
   // Create the browser window.
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
@@ -92,4 +91,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-

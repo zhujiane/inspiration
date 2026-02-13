@@ -11,9 +11,6 @@ import {
   CloseOutlined,
   MinusOutlined,
   ExpandOutlined,
-  AppstoreOutlined,
-  SettingOutlined,
-  UserOutlined,
   DownOutlined
 } from '@ant-design/icons'
 
@@ -68,7 +65,6 @@ export default function TitleBar({
   onCloseAll,
   onCloseRight,
   onCloseOthers,
-  onMenuClick,
   onMinimize,
   onMaximize,
   onClose,
