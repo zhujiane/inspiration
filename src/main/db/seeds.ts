@@ -13,6 +13,13 @@ export async function initDb(): Promise<void> {
     const migrationsFolder = is.dev ? join(process.cwd(), 'src/main/migrations') : join(__dirname, 'migrations')
     log.info(`Running migrations from: ${migrationsFolder}`)
 
+    // 检查迁移目录是否存在
+    const { existsSync } = await import('fs')
+    if (!existsSync(migrationsFolder)) {
+      log.error(`Migrations folder not found: ${migrationsFolder}`)
+      throw new Error(`Migrations folder not found: ${migrationsFolder}`)
+    }
+
     // 执行迁移
     await migrate(db, { migrationsFolder })
     log.info('Migrations completed')
