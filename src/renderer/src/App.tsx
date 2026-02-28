@@ -305,8 +305,8 @@ function App(): React.JSX.Element {
         const existing = prev.find((t) => t.url === item.url)
         if (existing) {
           setActiveTabId(existing.id)
-          // Update favicon from DB if we have one and the tab doesn't
-          if (dbFavicon && !existing.favicon) {
+          // Update favicon from DB if we have one and the existing tab doesn't have a DB icon
+          if (dbFavicon && (!existing.favicon || !existing.favicon.startsWith('data:image'))) {
             return prev.map((t) => (t.id === existing.id ? { ...t, favicon: dbFavicon } : t))
           }
           return prev
