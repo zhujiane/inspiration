@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, screen } from 'electron'
+import { app, shell, BrowserWindow, screen, protocol, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -31,7 +31,12 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    const { url } = details
+    if (url.startsWith('bitbrowser://') || url.startsWith('bytedance://') || url.startsWith('snssdk')) {
+      log.info(`Blocked external protocol in main window: ${url}`)
+      return { action: 'deny' }
+    }
+    shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -49,6 +54,16 @@ function createWindow(): BrowserWindow {
 
   return mainWindow
 }
+
+// 在 app ready 之前注册需要拦截的自定义协议
+const BLOCKED_PROTOCOLS = ['bitbrowser', 'bytedance', 'snssdk1128', 'snssdk1233', 'snssdk']
+
+protocol.registerSchemesAsPrivileged(
+  BLOCKED_PROTOCOLS.map((scheme) => ({
+    scheme,
+    privileges: { standard: false, secure: false, supportFetchAPI: false }
+  }))
+)
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -74,9 +89,55 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // 在协议层拦截自定义协议，防止 iframe / webview 等触发系统弹窗
+  for (const scheme of BLOCKED_PROTOCOLS) {
+    session.defaultSession.protocol.handle(scheme, (request) => {
+      log.info(`Blocked protocol request: ${request.url}`)
+      return new Response('', { status: 200 })
+    })
+  }
+
   createWindow()
   // Set up tRPC IPC handler
   setupTRPC()
+
+  // 记录已注册过协议处理器的 session，避免重复注册
+  const registeredSessions = new WeakSet<Electron.Session>()
+  registeredSessions.add(session.defaultSession)
+
+  const registerProtocolHandlers = (ses: Electron.Session): void => {
+    if (registeredSessions.has(ses)) return
+    registeredSessions.add(ses)
+    for (const scheme of BLOCKED_PROTOCOLS) {
+      try {
+        ses.protocol.handle(scheme, (request) => {
+          log.info(`Blocked protocol request (webview session): ${request.url}`)
+          return new Response('', { status: 200 })
+        })
+      } catch (e) {
+        log.warn(`Failed to register protocol handler for ${scheme}:`, e)
+      }
+    }
+  }
+
+  // 拦截 webview 的新窗口打开事件，并为 webview session 注册协议拦截
+  app.on('web-contents-created', (_, contents) => {
+    // 为每个 webContents 的 session 注册协议处理器（覆盖 webview 独立 session）
+    registerProtocolHandlers(contents.session)
+
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(({ url }) => {
+        // 检查是否是被拦截的协议
+        const isBlocked = BLOCKED_PROTOCOLS.some((scheme) => url.startsWith(`${scheme}://`))
+        if (isBlocked) {
+          log.info(`Blocked protocol in webview window.open: ${url}`)
+          return { action: 'deny' }
+        }
+        contents.loadURL(url)
+        return { action: 'deny' }
+      })
+    }
+  })
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

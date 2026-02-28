@@ -109,7 +109,7 @@ function App(): React.JSX.Element {
 
   // --- Sniffer Panel State ---
   const [resources, setResources] = useState<MediaResource[]>(DEMO_RESOURCES)
-  const [snifferCollapsed, setSnifferCollapsed] = useState(false)
+  const [snifferCollapsed, setSnifferCollapsed] = useState(true)
   const [snifferSearch, setSnifferSearch] = useState('')
 
   // --- MainContent Ref ---
@@ -136,7 +136,7 @@ function App(): React.JSX.Element {
     try {
       const all = (await trpc.bookmark.list.query()) as any[]
       setAllBookmarks(all)
-      setBookmarkGroups(all.filter((b) => b.type === 1))
+      setBookmarkGroups(all.filter((b) => b.type === 1 && b.name !== '应用'))
     } catch (error) {
       console.error('Failed to fetch bookmark groups:', error)
     }
@@ -177,14 +177,57 @@ function App(): React.JSX.Element {
           break
         case 'page-favicon-updated':
           if (e.favicons && e.favicons.length > 0) {
-            setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, favicon: e.favicons[0] } : t)))
+            const favicon = e.favicons[0]
+            setTabs((prev) =>
+              prev.map((t) => {
+                if (t.id === tabId) {
+                  // If we already have a database icon (base64), don't overwrite it
+                  if (t.favicon && t.favicon.startsWith('data:image')) {
+                    return t
+                  }
+                  return { ...t, favicon }
+                }
+                return t
+              })
+            )
+
+            // Save favicon to DB if the bookmark doesn't have one yet
+            const currentUrl = tabs.find((t) => t.id === tabId)?.url
+            if (currentUrl) {
+              const bookmark = allBookmarks.find(
+                (b) => b.type === 2 && b.url && getCanonicalUrl(b.url) === getCanonicalUrl(currentUrl)
+              )
+              if (bookmark && (!bookmark.icon || !bookmark.icon.startsWith('data:image'))) {
+                // Fetch the favicon and convert to base64, then save to DB
+                fetch(favicon)
+                  .then((res) => res.blob())
+                  .then((blob) => {
+                    const reader = new FileReader()
+                    reader.onloadend = () => {
+                      const base64 = reader.result as string
+                      if (base64 && base64.startsWith('data:image')) {
+                        trpc.bookmark.update
+                          .mutate({ id: bookmark.id, icon: base64 })
+                          .then(() => {
+                            fetchBookmarkGroups()
+                            sidebarRef.current?.refresh()
+                          })
+                          .catch((err) => console.error('Failed to save favicon to DB:', err))
+                      }
+                    }
+                    reader.readAsDataURL(blob)
+                  })
+                  .catch(() => {
+                    // If fetch fails (e.g. cross-origin), ignore silently
+                  })
+              }
+            }
           }
           break
       }
     },
-    [activeTabId]
+    [activeTabId, tabs, allBookmarks, fetchBookmarkGroups]
   )
-
   // --- Title Bar Handlers ---
   const handleTabSelect = useCallback(
     (id: string) => {
@@ -211,47 +254,61 @@ function App(): React.JSX.Element {
     [activeTabId]
   )
 
-  const handleTabAdd = useCallback(() => {
-    const newTab: Tab = {
-      id: `tab-${Date.now()}`,
-      title: '新标签页',
-      url: '',
-      userDataPath: 'default' // Default persistence directory
-    }
-    setTabs((prev) => [...prev, newTab])
-    setActiveTabId(newTab.id)
-    setUrl('')
-  }, [])
-
   const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
 
     // Handle special local apps
-    if (item.type === 3 && (item.name === '素材管理' || item.name === '素材中心')) {
-      setTabs((prev) => {
-        const existing = prev.find((t) => t.type === 'resource')
-        if (existing) {
-          setActiveTabId(existing.id)
-          return prev
-        }
-        const newTab: Tab = {
-          id: `tab-resource`,
-          title: '素材管理',
-          type: 'resource'
-        }
-        setActiveTabId(newTab.id)
-        return [...prev, newTab]
-      })
-      return
+    if (item.type === 3) {
+      if (item.name === '素材管理' || item.name === '素材中心') {
+        setTabs((prev) => {
+          const existing = prev.find((t) => t.type === 'resource')
+          if (existing) {
+            setActiveTabId(existing.id)
+            return prev
+          }
+          const newTab: Tab = {
+            id: `tab-resource`,
+            title: '素材管理',
+            type: 'resource'
+          }
+          setActiveTabId(newTab.id)
+          return [...prev, newTab]
+        })
+        return
+      }
+
+      if (item.name === '系统配置' || item.name === '系统初始化') {
+        setTabs((prev) => {
+          const existing = prev.find((t) => t.type === 'system')
+          if (existing) {
+            setActiveTabId(existing.id)
+            return prev
+          }
+          const newTab: Tab = {
+            id: `tab-system`,
+            title: '系统配置',
+            type: 'system'
+          }
+          setActiveTabId(newTab.id)
+          return [...prev, newTab]
+        })
+        return
+      }
     }
 
     if (item.url) {
       setUrl(item.url)
+      // Use DB icon directly as favicon if it's a data:image
+      const dbFavicon = item.icon && item.icon.startsWith('data:image') ? item.icon : undefined
       // Also update or create a tab
       setTabs((prev) => {
         const existing = prev.find((t) => t.url === item.url)
         if (existing) {
           setActiveTabId(existing.id)
+          // Update favicon from DB if we have one and the tab doesn't
+          if (dbFavicon && !existing.favicon) {
+            return prev.map((t) => (t.id === existing.id ? { ...t, favicon: dbFavicon } : t))
+          }
           return prev
         }
         const newTab: Tab = {
@@ -259,7 +316,8 @@ function App(): React.JSX.Element {
           title: item.name,
           url: item.url || '',
           userDataPath: item.userDataPath || 'default',
-          type: 'webview'
+          type: 'webview',
+          favicon: dbFavicon
         }
         setActiveTabId(newTab.id)
         return [...prev, newTab]
@@ -396,7 +454,6 @@ function App(): React.JSX.Element {
               onToggleFavorite={handleToggleFavorite}
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}
-              onTabAdd={handleTabAdd}
               onCloseAll={() => {
                 setTabs([])
                 setUrl('')

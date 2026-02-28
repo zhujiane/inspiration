@@ -7,7 +7,6 @@ import {
   ReloadOutlined,
   StarOutlined,
   StarFilled,
-  PlusOutlined,
   CloseOutlined,
   MinusOutlined,
   ExpandOutlined,
@@ -36,7 +35,6 @@ interface TitleBarProps {
   onToggleFavorite?: () => void
   onTabSelect?: (id: string) => void
   onTabClose?: (id: string) => void
-  onTabAdd?: () => void
   onCloseAll?: () => void
   onCloseRight?: () => void
   onCloseOthers?: () => void
@@ -61,7 +59,6 @@ export default function TitleBar({
   onToggleFavorite,
   onTabSelect,
   onTabClose,
-  onTabAdd,
   onCloseAll,
   onCloseRight,
   onCloseOthers,
@@ -238,11 +235,7 @@ export default function TitleBar({
             <RightOutlined />
           </button>
         )}
-        <Tooltip title="新标签页" mouseEnterDelay={0.5}>
-          <button className="title-bar__tab-add" onClick={onTabAdd} aria-label="新建标签页">
-            <PlusOutlined />
-          </button>
-        </Tooltip>
+
         <Dropdown menu={{ items: tabDropdownItems, onClick: handleTabDropdown }} trigger={['click']}>
           <button className="title-bar__tab-add" aria-label="标签操作">
             <DownOutlined style={{ fontSize: 10 }} />

@@ -2,6 +2,7 @@ import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { GlobalOutlined } from '@ant-design/icons'
 import type { Tab } from '../TitleBar'
 import ResourcePage from '../../pages/resource'
+import SetupPage from '../../pages/setup'
 
 interface MainContentProps {
   tabs: Tab[]
@@ -118,6 +119,17 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(({ tabs, active
                 style={{ display: isActive ? 'block' : 'none', height: '100%', width: '100%', overflow: 'auto' }}
               >
                 <ResourcePage />
+              </div>
+            )
+          }
+
+          if (tab.type === 'system') {
+            return (
+              <div
+                key={tab.id}
+                style={{ display: isActive ? 'block' : 'none', height: '100%', width: '100%', overflow: 'auto' }}
+              >
+                <SetupPage />
               </div>
             )
           }

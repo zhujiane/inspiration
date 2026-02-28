@@ -577,12 +577,13 @@
 }
 
 .sidebar__item-actions {
-  display: none;
+  display: flex;
   gap: 2px;
+  visibility: hidden;
 }
 
 .sidebar__item:hover .sidebar__item-actions {
-  display: flex;
+  visibility: visible;
 }
 
 /* Sidebar toggle */

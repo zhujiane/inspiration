@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react'
-import { Tooltip, Modal, Form, Input, Select, App as AntdApp, Popconfirm, Empty } from 'antd'
+import { Tooltip, Modal, Form, Input, App as AntdApp, Popconfirm, Empty } from 'antd'
 import {
   PlusOutlined,
   EditOutlined,
@@ -13,7 +13,12 @@ import {
   HolderOutlined,
   AppstoreAddOutlined,
   LinkOutlined,
-  SearchOutlined
+  SearchOutlined,
+  VideoCameraOutlined,
+  SettingOutlined,
+  FileImageOutlined,
+  AudioOutlined,
+  FileTextOutlined
 } from '@ant-design/icons'
 import {
   DndContext,
@@ -86,6 +91,26 @@ const HighlightText = ({ text, highlight }: { text: string; highlight?: string }
   )
 }
 
+const renderIcon = (iconName: string | null | undefined, defaultIcon: React.ReactNode) => {
+  if (!iconName) return defaultIcon
+  if (iconName.startsWith('data:image')) {
+    return <img src={iconName} style={{ width: 14, height: 14, borderRadius: 2 }} alt="" />
+  }
+
+  const iconMap: Record<string, React.ReactNode> = {
+    AppstoreOutlined: <AppstoreOutlined />,
+    VideoCameraOutlined: <VideoCameraOutlined />,
+    SettingOutlined: <SettingOutlined />,
+    GlobalOutlined: <GlobalOutlined />,
+    FolderOutlined: <FolderOutlined />,
+    FileImageOutlined: <FileImageOutlined />,
+    AudioOutlined: <AudioOutlined />,
+    FileTextOutlined: <FileTextOutlined />
+  }
+
+  return iconMap[iconName] || defaultIcon
+}
+
 /* ============================================================
    Sortable Components
    ============================================================ */
@@ -125,13 +150,7 @@ const SortableItem = ({ item, isActive, onClick, onEdit, onDelete, searchText }:
         <HolderOutlined style={{ fontSize: 10, cursor: 'grab' }} />
       </div>
       <span className="sidebar__item-icon">
-        {item.icon && item.icon.startsWith('data:image') ? (
-          <img src={item.icon} style={{ width: 14, height: 14, borderRadius: 2 }} alt="" />
-        ) : item.type === 3 ? (
-          <AppstoreOutlined />
-        ) : (
-          <GlobalOutlined />
-        )}
+        {renderIcon(item.icon, item.type === 3 ? <AppstoreOutlined /> : <GlobalOutlined />)}
       </span>
       <span className="sidebar__item-label">
         <HighlightText text={item.name} highlight={searchText} />
@@ -417,18 +436,27 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(
 
     const handleAddGroup = () => {
       setEditingItem({ type: 1, parentId: 0, order: groups.length })
-      form.setFieldsValue({ name: '', type: 1, url: '', icon: '', description: '' })
+      form.setFieldsValue({ name: '', type: 1, url: '', icon: '', description: '', userDataPath: '' })
       setIsModalOpen(true)
     }
 
     const handleAddItem = (groupId: number) => {
       const sameGroupItems = bookmarks.filter((b) => b.parentId === groupId)
+      const parentGroup = bookmarks.find((b) => b.id === groupId)
       setEditingItem({
         type: 2,
         parentId: groupId,
         order: sameGroupItems.length
       })
-      form.setFieldsValue({ name: '', type: 2, url: '', parentId: groupId, icon: '', description: '' })
+      form.setFieldsValue({
+        name: '',
+        type: 2,
+        url: '',
+        parentId: groupId,
+        icon: '',
+        description: '',
+        userDataPath: parentGroup?.userDataPath || ''
+      })
       setIsModalOpen(true)
       // Auto expand group when adding item
       setCollapsedGroups((prev) => {
@@ -667,27 +695,18 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(
             </Form.Item>
 
             {editingItem?.type !== 1 && (
-              <>
-                <Form.Item noStyle shouldUpdate={(prev, curr) => prev.type !== curr.type}>
-                  {({ getFieldValue }) => {
-                    const type = getFieldValue('type')
-                    return (
-                      <Form.Item name="url" label="链接" rules={[{ required: type === 2, message: '请输入链接' }]}>
-                        <Input placeholder="https://..." prefix={<LinkOutlined />} />
-                      </Form.Item>
-                    )
-                  }}
-                </Form.Item>
-                <Form.Item name="type" label="类型" initialValue={2}>
-                  <Select
-                    options={[
-                      { value: 2, label: '网页', icon: <GlobalOutlined /> },
-                      { value: 3, label: '应用', icon: <AppstoreOutlined /> }
-                    ]}
-                  />
-                </Form.Item>
-              </>
+              <Form.Item name="url" label="链接" rules={[{ required: true, message: '请输入链接' }]}>
+                <Input placeholder="https://..." prefix={<LinkOutlined />} />
+              </Form.Item>
             )}
+
+            <Form.Item
+              name="userDataPath"
+              label="持久化目录"
+              tooltip="每个项目可以拥有独立的持久化数据（Cookie/Session等）。如果分组设置了该路径，添加子项时将默认继承。"
+            >
+              <Input placeholder="输入持久化标识，例如: default" />
+            </Form.Item>
 
             <Form.Item name="description" label="描述">
               <Input.TextArea placeholder="可选" autoSize={{ minRows: 2 }} />
