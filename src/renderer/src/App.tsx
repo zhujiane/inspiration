@@ -9,70 +9,11 @@ import type { Bookmark } from '../../shared/db/bookmark-schema'
 import MainContent from './components/MainContent'
 import type { MainContentRef } from './components/MainContent'
 import SnifferPanel from './components/SnifferPanel'
+import type { SnifferStats } from './components/SnifferPanel'
 import type { MediaResource } from './components/SnifferPanel/MediaCard'
 import StatusBar from './components/StatusBar'
 import { Modal, Form, Select, Input, message } from 'antd'
 import { trpc } from './lib/trpc'
-
-/* ============================================================
-   Demo Data
-   ============================================================ */
-const DEMO_TABS: Tab[] = []
-
-// No longer used as Sidebar handles its own data
-
-const DEMO_RESOURCES: MediaResource[] = [
-  {
-    id: 'res-1',
-    type: 'video',
-    title: '夏日海边旅拍.mp4',
-    size: '24.5MB',
-    resolution: '1920×1080',
-    duration: '00:32',
-    url: 'https://example.com/video1.mp4'
-  },
-  {
-    id: 'res-2',
-    type: 'image',
-    title: '产品封面图.jpg',
-    size: '1.2MB',
-    resolution: '1200×800',
-    url: 'https://example.com/img1.jpg'
-  },
-  {
-    id: 'res-3',
-    type: 'audio',
-    title: '背景音乐-轻快.mp3',
-    size: '3.8MB',
-    duration: '03:45',
-    url: 'https://example.com/audio1.mp3'
-  },
-  {
-    id: 'res-4',
-    type: 'video',
-    title: '美食制作过程.mp4',
-    size: '18.2MB',
-    resolution: '1080×1920',
-    duration: '01:15',
-    url: 'https://example.com/video2.mp4'
-  },
-  {
-    id: 'res-5',
-    type: 'image',
-    title: '城市夜景航拍.png',
-    size: '5.6MB',
-    resolution: '3840×2160',
-    url: 'https://example.com/img2.png'
-  },
-  {
-    id: 'res-6',
-    type: 'image',
-    title: '人物特写照片.jpg',
-    size: '0.8MB',
-    resolution: '800×1200',
-    url: 'https://example.com/img3.jpg'
-  }
-]
 
 /* ============================================================
    Ant Design Compact Theme Tokens
@@ -98,7 +39,7 @@ const antdTheme = {
    ============================================================ */
 function App(): React.JSX.Element {
   // --- Title Bar State ---
-  const [tabs, setTabs] = useState<Tab[]>(DEMO_TABS)
+  const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState('tab-1')
   const [url, setUrl] = useState('')
 
@@ -108,9 +49,16 @@ function App(): React.JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   // --- Sniffer Panel State ---
-  const [resources, setResources] = useState<MediaResource[]>(DEMO_RESOURCES)
+  const [resources, setResources] = useState<MediaResource[]>([])
   const [snifferCollapsed, setSnifferCollapsed] = useState(true)
   const [snifferSearch, setSnifferSearch] = useState('')
+  const [snifferActive, setSnifferActive] = useState(false)
+  const [snifferStats, setSnifferStats] = useState<SnifferStats>({
+    active: false,
+    sniffedCount: 0,
+    identifiedCount: 0,
+    discardedCount: 0
+  })
 
   // --- MainContent Ref ---
   const mainContentRef = useRef<MainContentRef>(null)
@@ -122,8 +70,86 @@ function App(): React.JSX.Element {
   const [isBookmarkModalVisible, setIsBookmarkModalVisible] = useState(false)
   const [bookmarkForm] = Form.useForm()
 
+  // ---------- Sniffer partition helper ----------
+  const getActivePartition = useCallback(() => {
+    const tab = tabs.find((t) => t.id === activeTabId)
+    return tab?.userDataPath ? `persist:${tab.userDataPath}` : 'persist:default'
+  }, [tabs, activeTabId])
+
+  // ---------- IPC listeners from main process ----------
+  useEffect(() => {
+    const bridge = (window as any).snifferBridge
+    if (!bridge) return
+
+    const unsubResource = bridge.onResource((data: any) => {
+      const { resource } = data
+      if (!resource) return
+      setResources((prev) => {
+        // Deduplicate by URL
+        if (prev.some((r) => r.url === resource.url)) return prev
+        return [resource, ...prev]
+      })
+      // Auto-expand panel when a resource is found
+      setSnifferCollapsed(false)
+    })
+
+    const unsubStats = bridge.onStats((data: any) => {
+      const partition = getActivePartition()
+      if (data.partition !== partition) return
+      setSnifferStats({
+        active: data.active,
+        sniffedCount: data.sniffedCount,
+        identifiedCount: data.identifiedCount,
+        discardedCount: data.discardedCount
+      })
+    })
+
+    return () => {
+      unsubResource()
+      unsubStats()
+    }
+  }, [getActivePartition])
+
+  // ---------- Sniffer control handlers ----------
+  const handleSnifferStart = useCallback(async () => {
+    const partition = getActivePartition()
+    try {
+      await trpc.sniffer.start.mutate({ partition })
+      setSnifferActive(true)
+      setSnifferCollapsed(false)
+      setResources([])
+      setSnifferStats({ active: true, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
+      // Trigger initial DOM scan
+      setTimeout(() => mainContentRef.current?.scanPageResources(), 300)
+    } catch (e) {
+      console.error('Sniffer start failed', e)
+    }
+  }, [getActivePartition])
+
+  const handleSnifferStop = useCallback(async () => {
+    const partition = getActivePartition()
+    try {
+      await trpc.sniffer.stop.mutate({ partition })
+      setSnifferActive(false)
+      setSnifferStats((s) => ({ ...s, active: false }))
+    } catch (e) {
+      console.error('Sniffer stop failed', e)
+    }
+  }, [getActivePartition])
+
+  const handleSnifferRefresh = useCallback(async () => {
+    // Re-scan current page DOM
+    mainContentRef.current?.scanPageResources()
+  }, [])
+
+  const handleSnifferConfig = useCallback(() => {
+    // Placeholder for config modal
+    message.info('配置功能即将上线')
+  }, [])
+
+  // ---------- Bookmark helpers ----------
   const getCanonicalUrl = (u: string) => {
-    if (!u || !u.includes('.')) return u // Fast path for non-URLs
+    if (!u || !u.includes('.')) return u
     try {
       const urlObj = new URL(u.startsWith('http') ? u : `https://${u}`)
       return urlObj.origin + urlObj.pathname
@@ -181,7 +207,6 @@ function App(): React.JSX.Element {
             setTabs((prev) =>
               prev.map((t) => {
                 if (t.id === tabId) {
-                  // If we already have a database icon (base64), don't overwrite it
                   if (t.favicon && t.favicon.startsWith('data:image')) {
                     return t
                   }
@@ -198,7 +223,6 @@ function App(): React.JSX.Element {
                 (b) => b.type === 2 && b.url && getCanonicalUrl(b.url) === getCanonicalUrl(currentUrl)
               )
               if (bookmark && (!bookmark.icon || !bookmark.icon.startsWith('data:image'))) {
-                // Fetch the favicon and convert to base64, then save to DB
                 fetch(favicon)
                   .then((res) => res.blob())
                   .then((blob) => {
@@ -217,9 +241,7 @@ function App(): React.JSX.Element {
                     }
                     reader.readAsDataURL(blob)
                   })
-                  .catch(() => {
-                    // If fetch fails (e.g. cross-origin), ignore silently
-                  })
+                  .catch(() => {})
               }
             }
           }
@@ -228,6 +250,7 @@ function App(): React.JSX.Element {
     },
     [activeTabId, tabs, allBookmarks, fetchBookmarkGroups]
   )
+
   // --- Title Bar Handlers ---
   const handleTabSelect = useCallback(
     (id: string) => {
@@ -298,14 +321,11 @@ function App(): React.JSX.Element {
 
     if (item.url) {
       setUrl(item.url)
-      // Use DB icon directly as favicon if it's a data:image
       const dbFavicon = item.icon && item.icon.startsWith('data:image') ? item.icon : undefined
-      // Also update or create a tab
       setTabs((prev) => {
         const existing = prev.find((t) => t.url === item.url)
         if (existing) {
           setActiveTabId(existing.id)
-          // Update favicon from DB if we have one and the existing tab doesn't have a DB icon
           if (dbFavicon && (!existing.favicon || !existing.favicon.startsWith('data:image'))) {
             return prev.map((t) => (t.id === existing.id ? { ...t, favicon: dbFavicon } : t))
           }
@@ -348,14 +368,14 @@ function App(): React.JSX.Element {
       userDataPath: currentTab?.userDataPath || 'default'
     })
     setIsBookmarkModalVisible(true)
-  }, [isFavorited, currentBookmark, activeTabId, tabs, url, bookmarkGroups, bookmarkForm, fetchBookmarkGroups, message])
+  }, [isFavorited, currentBookmark, activeTabId, tabs, url, bookmarkGroups, bookmarkForm, fetchBookmarkGroups])
 
   const handleBookmarkSubmit = async () => {
     try {
       const values = await bookmarkForm.validateFields()
       await trpc.bookmark.create.mutate({
         ...values,
-        type: 2 // URL type
+        type: 2
       })
       message.success('已添加到收藏夹')
       setIsBookmarkModalVisible(false)
@@ -366,7 +386,7 @@ function App(): React.JSX.Element {
     }
   }
 
-  // --- Sniffer Handlers ---
+  // --- Sniffer Resource Handlers ---
   const handleResourceSelect = useCallback((id: string, selected: boolean) => {
     setResources((prev) => prev.map((r) => (r.id === id ? { ...r, selected } : r)))
   }, [])
@@ -376,12 +396,55 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleClearAll = useCallback(() => {
-    setResources((prev) => prev.map((r) => ({ ...r, selected: false })))
-  }, [])
+    setResources([])
+    const partition = getActivePartition()
+    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
+    setSnifferStats({ active: snifferActive, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
+  }, [getActivePartition, snifferActive])
 
   const handleResourceDelete = useCallback((id: string) => {
     setResources((prev) => prev.filter((r) => r.id !== id))
   }, [])
+
+  const handleResourcePreview = useCallback(
+    (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      // Open a simple preview — for video/audio open native shell; for images open in new window
+      if (res.type === 'image') {
+        window.open(res.url, '_blank')
+      } else {
+        trpc.system.openExternal.mutate({ url: res.url }).catch(() => {
+          window.open(res.url, '_blank')
+        })
+      }
+    },
+    [resources]
+  )
+
+  const handleResourceDownload = useCallback(
+    (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      // Trigger file download via browser
+      const a = document.createElement('a')
+      a.href = res.url
+      a.download = res.title || 'media'
+      a.target = '_blank'
+      a.click()
+      message.success('已开始下载，资源将添加至素材库')
+    },
+    [resources]
+  )
+
+  const handleResourceCopyUrl = useCallback(
+    (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      navigator.clipboard.writeText(res.url).then(() => message.success('链接已复制'))
+    },
+    [resources]
+  )
 
   // Filter resources by search
   const filteredResources = snifferSearch
@@ -422,7 +485,6 @@ function App(): React.JSX.Element {
               onUrlSubmit={(u) => {
                 if (!u) return
                 let formattedUrl = u
-                // Basic URL detection: starts with protocol, or looks like a domain/IP (contains dot, etc)
                 const isUrl =
                   /^(https?:\/\/)|(localhost)|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})/.test(
                     u
@@ -432,7 +494,6 @@ function App(): React.JSX.Element {
                     formattedUrl = 'https://' + u
                   }
                 } else {
-                  // If not a URL, use search
                   formattedUrl = `https://www.google.com/search?q=${encodeURIComponent(u)}`
                 }
 
@@ -475,6 +536,12 @@ function App(): React.JSX.Element {
                 tabs={tabs}
                 activeTabId={activeTabId}
                 onWebviewEvent={handleWebviewEvent}
+                snifferActive={snifferActive}
+                snifferPartition={getActivePartition()}
+                onSnifferStart={handleSnifferStart}
+                onSnifferStop={handleSnifferStop}
+                onSnifferRefresh={handleSnifferRefresh}
+                onSnifferConfig={handleSnifferConfig}
               />
 
               {/* 4. Right Sniffer Panel */}
@@ -482,6 +549,7 @@ function App(): React.JSX.Element {
                 resources={filteredResources}
                 collapsed={snifferCollapsed}
                 searchText={snifferSearch}
+                stats={snifferStats}
                 onToggle={() => setSnifferCollapsed((p) => !p)}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
@@ -491,9 +559,9 @@ function App(): React.JSX.Element {
                 onAdvancedSearch={() => console.log('Advanced search')}
                 onResourceSelect={handleResourceSelect}
                 onResourceDelete={handleResourceDelete}
-                onResourcePreview={(id) => console.log('Preview:', id)}
-                onResourceDownload={(id) => console.log('Download:', id)}
-                onResourceCopyUrl={(id) => console.log('Copy URL:', id)}
+                onResourcePreview={handleResourcePreview}
+                onResourceDownload={handleResourceDownload}
+                onResourceCopyUrl={handleResourceCopyUrl}
               />
             </div>
 

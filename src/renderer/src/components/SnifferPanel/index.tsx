@@ -1,4 +1,4 @@
-import { Tooltip } from 'antd'
+import { Tooltip, Progress } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
@@ -6,15 +6,25 @@ import {
   ThunderboltOutlined,
   LeftOutlined,
   RightOutlined,
-  FilterOutlined
+  FilterOutlined,
+  RadarChartOutlined,
+  LoadingOutlined
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
+
+export interface SnifferStats {
+  active: boolean
+  sniffedCount: number
+  identifiedCount: number
+  discardedCount: number
+}
 
 interface SnifferPanelProps {
   resources: MediaResource[]
   collapsed: boolean
   searchText: string
+  stats?: SnifferStats
   onToggle: () => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
@@ -33,6 +43,7 @@ export default function SnifferPanel({
   resources,
   collapsed,
   searchText,
+  stats,
   onToggle,
   onSearchChange,
   onSelectAll,
@@ -48,6 +59,12 @@ export default function SnifferPanel({
 }: SnifferPanelProps): React.JSX.Element {
   const selectedCount = resources.filter((r) => r.selected).length
 
+  const analyzing = (stats?.sniffedCount ?? 0) - (stats?.identifiedCount ?? 0) - (stats?.discardedCount ?? 0)
+  const sniffedCount = stats?.sniffedCount ?? 0
+  const identifiedCount = stats?.identifiedCount ?? 0
+  const discardedCount = stats?.discardedCount ?? 0
+  const progressPct = sniffedCount > 0 ? Math.round(((identifiedCount + discardedCount) / sniffedCount) * 100) : 0
+
   return (
     <aside className={`sniffer-panel ${collapsed ? 'sniffer-panel--collapsed' : ''}`} id="sniffer-panel">
       {/* Toggle Handle */}
@@ -61,7 +78,60 @@ export default function SnifferPanel({
 
       {!collapsed && (
         <>
-          {/* 4.1 Toolbar */}
+          {/* ── Stats Bar ── */}
+          <div className="sniffer-panel__stats">
+            <div className="sniffer-panel__stats-header">
+              <span className="sniffer-panel__stats-title">
+                {stats?.active ? (
+                  <>
+                    <LoadingOutlined spin style={{ marginRight: 4, color: 'var(--color-primary)' }} />
+                    嗅探中
+                  </>
+                ) : (
+                  <>
+                    <RadarChartOutlined style={{ marginRight: 4 }} />
+                    嗅探结果
+                  </>
+                )}
+              </span>
+              <div className="sniffer-panel__stats-counts">
+                <Tooltip title="已嗅探URL数">
+                  <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--sniffed">
+                    {sniffedCount} 嗅探
+                  </span>
+                </Tooltip>
+                <Tooltip title="已识别媒体资源">
+                  <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--identified">
+                    {identifiedCount} 识别
+                  </span>
+                </Tooltip>
+                <Tooltip title="已丢弃非媒体URL">
+                  <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--discarded">
+                    {discardedCount} 丢弃
+                  </span>
+                </Tooltip>
+                {analyzing > 0 && (
+                  <Tooltip title="正在分析中">
+                    <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--analyzing">
+                      {analyzing} 分析中
+                    </span>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
+            {sniffedCount > 0 && (
+              <Progress
+                percent={progressPct}
+                size="small"
+                showInfo={false}
+                strokeColor={analyzing > 0 ? 'var(--color-primary)' : 'var(--color-success)'}
+                trailColor="var(--color-border)"
+                style={{ margin: '4px 0 0' }}
+              />
+            )}
+          </div>
+
+          {/* ── Toolbar ── */}
           <div className="sniffer-panel__toolbar">
             <div className="sniffer-panel__toolbar-group">
               <Tooltip title="全选" mouseEnterDelay={0.5}>
@@ -127,7 +197,7 @@ export default function SnifferPanel({
             </div>
           </div>
 
-          {/* 4.1 Grid */}
+          {/* ── Resource Grid ── */}
           <div className="sniffer-panel__grid">
             {resources.length > 0 ? (
               resources.map((res) => (
@@ -154,8 +224,8 @@ export default function SnifferPanel({
                   fontSize: 12
                 }}
               >
-                <FilterOutlined style={{ fontSize: 32, marginBottom: 8, opacity: 0.3 }} />
-                <span>暂无嗅探到的资源</span>
+                <RadarChartOutlined style={{ fontSize: 32, marginBottom: 8, opacity: 0.3 }} />
+                <span>{stats?.active ? '正在嗅探中，请稍候...' : '暂无嗅探到的资源'}</span>
               </div>
             )}
           </div>

@@ -2,6 +2,7 @@ import { trpc } from '@shared/routers/trpc'
 import { appRouter as sharedRouter } from '@shared/routers/router'
 import { systemRouter } from './routers/system'
 import { ffmpegRouter } from './routers/ffmpeg'
+import { snifferRouter } from './routers/sniffer'
 
 /**
  * 主进程根路由
@@ -21,7 +22,8 @@ export const appRouter = trpc.router({
    * 挂载 Electron 特有的子路由
    */
   system: systemRouter,
-  ffmpeg: ffmpegRouter
+  ffmpeg: ffmpegRouter,
+  sniffer: snifferRouter
 })
 
 export type AppRouter = typeof appRouter

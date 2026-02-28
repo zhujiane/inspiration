@@ -15,6 +15,24 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('trpc', {
       invoke: (channel: string, payload: any) => ipcRenderer.invoke(channel, payload)
     })
+    // Sniffer IPC bridge
+    contextBridge.exposeInMainWorld('snifferBridge', {
+      // Renderer → Main: send DOM-scanned URLs
+      scanUrls: (partition: string, urls: string[]) =>
+        ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
+      // Main → Renderer: listen for new resources
+      onResource: (cb: (data: any) => void) => {
+        const handler = (_: any, data: any) => cb(data)
+        ipcRenderer.on('sniffer:resource', handler)
+        return () => ipcRenderer.removeListener('sniffer:resource', handler)
+      },
+      // Main → Renderer: listen for stats updates
+      onStats: (cb: (data: any) => void) => {
+        const handler = (_: any, data: any) => cb(data)
+        ipcRenderer.on('sniffer:stats', handler)
+        return () => ipcRenderer.removeListener('sniffer:stats', handler)
+      }
+    })
   } catch (error) {
     console.error(error)
   }
@@ -26,5 +44,20 @@ if (process.contextIsolated) {
   // @ts-ignore
   window.trpc = {
     invoke: (channel: string, payload: any) => ipcRenderer.invoke(channel, payload)
+  }
+  // @ts-ignore
+  window.snifferBridge = {
+    scanUrls: (partition: string, urls: string[]) =>
+      ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
+    onResource: (cb: (data: any) => void) => {
+      const handler = (_: any, data: any) => cb(data)
+      ipcRenderer.on('sniffer:resource', handler)
+      return () => ipcRenderer.removeListener('sniffer:resource', handler)
+    },
+    onStats: (cb: (data: any) => void) => {
+      const handler = (_: any, data: any) => cb(data)
+      ipcRenderer.on('sniffer:stats', handler)
+      return () => ipcRenderer.removeListener('sniffer:stats', handler)
+    }
   }
 }
