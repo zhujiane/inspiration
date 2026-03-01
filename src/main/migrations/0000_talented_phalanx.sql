@@ -16,6 +16,22 @@ CREATE TABLE `bookmarks` (
 	`isDefault` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `configs` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`code` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`key` text NOT NULL,
+	`value` text NOT NULL,
+	`value_type` text DEFAULT 'string' NOT NULL,
+	`group` text DEFAULT 'general' NOT NULL,
+	`label` text,
+	`description` text,
+	`default_value` text,
+	`order` integer DEFAULT 0 NOT NULL,
+	`is_system` integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `resources` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`code` text NOT NULL,

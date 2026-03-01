@@ -50,6 +50,48 @@ export async function initDb(): Promise<void> {
       }
       log.info('Default data initialized')
     }
+
+    // 初始化系统默认配置
+    const now = Math.floor(Date.now() / 1000)
+    const existingConfig = await db.query.configs.findFirst()
+    if (!existingConfig) {
+      log.info('Initializing default configs...')
+      const configSeeds = [
+        // ── general 通用设置 ──
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-lang', ${now}, ${now}, 'general.language', 'zh-CN', 'string', 'general', '界面语言', '应用界面显示语言', 'zh-CN', 0, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-autostart', ${now}, ${now}, 'general.autoStart', 'false', 'boolean', 'general', '开机自启', '系统登录时自动启动应用', 'false', 1, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-minimize-tray', ${now}, ${now}, 'general.minimizeToTray', 'true', 'boolean', 'general', '最小化到托盘', '关闭窗口时最小化到系统托盘', 'true', 2, 1);`,
+
+        // ── download 下载设置 ──
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-dl-path', ${now}, ${now}, 'download.path', '', 'string', 'download', '下载路径', '文件默认下载保存路径', '', 0, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-dl-concurrent', ${now}, ${now}, 'download.maxConcurrent', '3', 'number', 'download', '最大并发数', '同时下载文件的最大数量', '3', 1, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-dl-proxy', ${now}, ${now}, 'download.proxy', '', 'string', 'download', '代理地址', 'HTTP/SOCKS5 代理地址，留空则不使用代理', '', 2, 1);`,
+
+        // ── sniffer 嗅探器设置 ──
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-sniff-auto', ${now}, ${now}, 'sniffer.autoSniff', 'true', 'boolean', 'sniffer', '自动嗅探', '浏览页面时自动嗅探媒体资源', 'true', 0, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-sniff-types', ${now}, ${now}, 'sniffer.mediaTypes', '["video","audio","image"]', 'json', 'sniffer', '嗅探类型', '需要嗅探的媒体资源类型', '["video","audio","image"]', 1, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-sniff-minsize', ${now}, ${now}, 'sniffer.minFileSize', '102400', 'number', 'sniffer', '最小文件大小', '过滤小于此大小（字节）的资源，默认 100KB', '102400', 2, 1);`,
+
+        // ── appearance 外观设置 ──
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-theme', ${now}, ${now}, 'appearance.theme', 'light', 'string', 'appearance', '主题模式', '界面显示主题：light / dark / auto', 'light', 0, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-fontsize', ${now}, ${now}, 'appearance.fontSize', '12', 'number', 'appearance', '字体大小', '全局基础字体大小（px）', '12', 1, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-sidebar-w', ${now}, ${now}, 'appearance.sidebarWidth', '200', 'number', 'appearance', '侧边栏宽度', '左侧导航栏宽度（px）', '200', 2, 1);`,
+
+        // ── advanced 高级设置 ──
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-hwaccel', ${now}, ${now}, 'advanced.hardwareAcceleration', 'true', 'boolean', 'advanced', '硬件加速', '启用 GPU 硬件加速渲染', 'true', 0, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-loglevel', ${now}, ${now}, 'advanced.logLevel', 'info', 'string', 'advanced', '日志级别', '应用日志级别：debug / info / warn / error', 'info', 1, 1);`,
+        `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-cache-size', ${now}, ${now}, 'advanced.cacheSize', '512', 'number', 'advanced', '缓存大小', '应用缓存上限（MB）', '512', 2, 1);`
+      ]
+
+      for (const sqlStr of configSeeds) {
+        try {
+          await db.run(sql.raw(sqlStr))
+        } catch (e) {
+          log.warn(`Execute config seed sql failed: ${sqlStr}`, e)
+        }
+      }
+      log.info('Default configs initialized')
+    }
   } catch (error) {
     log.error('Failed to initialize database:', error)
     throw error

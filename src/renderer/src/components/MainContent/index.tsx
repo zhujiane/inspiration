@@ -2,7 +2,7 @@ import { useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { GlobalOutlined } from '@ant-design/icons'
 import type { Tab } from '../TitleBar'
 import ResourcePage from '../../pages/resource'
-import SetupPage from '../../pages/setup'
+import SetupPage from '../../pages/config'
 import FloatingCompass from '../FloatingCompass'
 
 interface MainContentProps {
@@ -84,7 +84,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
         .executeJavaScript(DOM_SCAN_SCRIPT)
         .then((urls: string[]) => {
           if (!urls || urls.length === 0) return
-          ;(window as any).snifferBridge?.scanUrls(partition, urls)
+            ; (window as any).snifferBridge?.scanUrls(partition, urls)
         })
         .catch(() => {
           /* ignore */

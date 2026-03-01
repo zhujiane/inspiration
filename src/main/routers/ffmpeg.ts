@@ -97,7 +97,8 @@ async function getFirstFrameToBase64(input: { path: string }) {
 
 export const ffmpegRouter = trpc.router({
   analyze: publicProcedure.input(z.object({ path: z.string() })).query(async ({ input }) => {
-    if (!fs.existsSync(input.path)) {
+    const isUrl = input.path.startsWith('http://') || input.path.startsWith('https://')
+    if (!isUrl && !fs.existsSync(input.path)) {
       throw new Error('文件不存在')
     }
 
@@ -109,10 +110,10 @@ export const ffmpegRouter = trpc.router({
       })
     })
 
-    const stats = fs.statSync(input.path)
-    const md5 = await md5File(input.path)
-    const videoStream = metadata.streams.find((s: any) => s.codec_type === 'video')
-    const audioStream = metadata.streams.find((s: any) => s.codec_type === 'audio')
+    const stats = isUrl ? { size: 0 } : fs.statSync(input.path)
+    const md5 = isUrl ? undefined : await md5File(input.path)
+    const videoStream = metadata.streams?.find((s: any) => s.codec_type === 'video')
+    const audioStream = metadata.streams?.find((s: any) => s.codec_type === 'audio')
     const fileType = detectFileType(input.path, metadata)
 
     const result: any = {
@@ -129,13 +130,17 @@ export const ffmpegRouter = trpc.router({
 
     // 2. 处理图片封面
     if (fileType === 'image') {
-      try {
-        const base64 = fs.readFileSync(input.path, { encoding: 'base64' })
-        const ext = path.extname(input.path).slice(1).toLowerCase() || 'jpeg'
-        const mimeExt = ext === 'jpg' ? 'jpeg' : ext
-        result.cover = `data:image/${mimeExt};base64,${base64}`
-      } catch (err) {
-        log.error('Image read error:', err)
+      if (!isUrl) {
+        try {
+          const base64 = fs.readFileSync(input.path, { encoding: 'base64' })
+          const ext = path.extname(input.path).slice(1).toLowerCase() || 'jpeg'
+          const mimeExt = ext === 'jpg' ? 'jpeg' : ext
+          result.cover = `data:image/${mimeExt};base64,${base64}`
+        } catch (err) {
+          log.error('Image read error:', err)
+        }
+      } else {
+        result.cover = input.path
       }
     }
 

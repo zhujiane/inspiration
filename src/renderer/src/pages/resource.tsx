@@ -29,6 +29,7 @@ import {
 } from '@ant-design/icons'
 import { trpc } from '../lib/trpc'
 import type { Resource } from '@shared/db/resource-schema'
+import PreviewModal from '../components/PreviewModal'
 
 const { Search } = Input
 
@@ -429,57 +430,14 @@ export default function ResourcePage() {
         />
       </Card>
 
-      <Modal
-        title={previewResource?.name}
+      <PreviewModal
         open={previewVisible}
         onCancel={() => setPreviewVisible(false)}
-        footer={null}
-        width={800}
-        centered
-        destroyOnHidden
-        styles={{ body: { padding: 0, backgroundColor: '#000', borderRadius: '00 8px 8px' } }}
-      >
-        <div
-          style={{
-            minHeight: 400,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#000'
-          }}
-        >
-          {previewResource?.type === '视频' && (
-            <video
-              src={previewResource.localPath ? `file:///${previewResource.localPath.replace(/\\/g, '/')}` : undefined}
-              controls
-              autoPlay
-              style={{ maxWidth: '100%', maxHeight: '70vh' }}
-            />
-          )}
-          {previewResource?.type === '音频' && (
-            <audio
-              src={previewResource.localPath ? `file:///${previewResource.localPath.replace(/\\/g, '/')}` : undefined}
-              controls
-              autoPlay
-              style={{ width: '80%' }}
-            />
-          )}
-          {previewResource?.type === '图片' && (
-            <img
-              src={
-                previewResource.cover ||
-                (previewResource.localPath ? `file:///${previewResource.localPath.replace(/\\/g, '/')}` : undefined)
-              }
-              alt=""
-              style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
-            />
-          )}
-          {(!previewResource ||
-            (previewResource.type !== '视频' &&
-              previewResource.type !== '图片' &&
-              previewResource.type !== '音频')) && <div style={{ color: '#fff' }}>该格式暂不支持预览</div>}
-        </div>
-      </Modal>
+        title={previewResource?.name}
+        type={previewResource?.type}
+        src={previewResource?.localPath || previewResource?.url || undefined}
+        cover={previewResource?.cover || undefined}
+      />
 
       <Modal
         title="编辑素材记录"

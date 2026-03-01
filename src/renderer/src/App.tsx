@@ -12,6 +12,7 @@ import SnifferPanel from './components/SnifferPanel'
 import type { SnifferStats } from './components/SnifferPanel'
 import type { MediaResource } from './components/SnifferPanel/MediaCard'
 import StatusBar from './components/StatusBar'
+import PreviewModal from './components/PreviewModal'
 import { Modal, Form, Select, Input, message } from 'antd'
 import { trpc } from './lib/trpc'
 
@@ -59,6 +60,10 @@ function App(): React.JSX.Element {
     identifiedCount: 0,
     discardedCount: 0
   })
+
+  // --- Preview State ---
+  const [previewVisible, setPreviewVisible] = useState(false)
+  const [previewResource, setPreviewResource] = useState<MediaResource | null>(null)
 
   // --- MainContent Ref ---
   const mainContentRef = useRef<MainContentRef>(null)
@@ -241,7 +246,7 @@ function App(): React.JSX.Element {
                     }
                     reader.readAsDataURL(blob)
                   })
-                  .catch(() => {})
+                  .catch(() => { })
               }
             }
           }
@@ -398,7 +403,7 @@ function App(): React.JSX.Element {
   const handleClearAll = useCallback(() => {
     setResources([])
     const partition = getActivePartition()
-    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
+    trpc.sniffer.reset.mutate({ partition }).catch(() => { })
     setSnifferStats({ active: snifferActive, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
   }, [getActivePartition, snifferActive])
 
@@ -410,14 +415,8 @@ function App(): React.JSX.Element {
     (id: string) => {
       const res = resources.find((r) => r.id === id)
       if (!res) return
-      // Open a simple preview — for video/audio open native shell; for images open in new window
-      if (res.type === 'image') {
-        window.open(res.url, '_blank')
-      } else {
-        trpc.system.openExternal.mutate({ url: res.url }).catch(() => {
-          window.open(res.url, '_blank')
-        })
-      }
+      setPreviewResource(res)
+      setPreviewVisible(true)
     },
     [resources]
   )
@@ -449,9 +448,9 @@ function App(): React.JSX.Element {
   // Filter resources by search
   const filteredResources = snifferSearch
     ? resources.filter(
-        (r) =>
-          r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
-      )
+      (r) =>
+        r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
+    )
     : resources
 
   return (
@@ -519,7 +518,7 @@ function App(): React.JSX.Element {
                 setTabs([])
                 setUrl('')
               }}
-              onCloseRight={() => {}}
+              onCloseRight={() => { }}
               onCloseOthers={() => {
                 setTabs((prev) => prev.filter((t) => t.id === activeTabId))
               }}
@@ -605,6 +604,16 @@ function App(): React.JSX.Element {
             </Form.Item>
           </Form>
         </Modal>
+
+        {/* Resource Preview Modal */}
+        <PreviewModal
+          open={previewVisible}
+          onCancel={() => setPreviewVisible(false)}
+          title={previewResource?.title}
+          type={previewResource?.type}
+          src={previewResource?.url}
+          cover={previewResource?.thumbnailUrl}
+        />
       </AntdApp>
     </ConfigProvider>
   )

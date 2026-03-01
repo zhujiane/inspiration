@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react'
 import { Tooltip } from 'antd'
+import { trpc } from '../../lib/trpc'
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -51,83 +53,129 @@ export default function MediaCard({
   onDownload,
   onCopyUrl
 }: MediaCardProps): React.JSX.Element {
+  const [cover, setCover] = useState<string | undefined>(
+    resource.type === 'image' ? (resource.thumbnailUrl || resource.url) : resource.thumbnailUrl
+  )
+
+  useEffect(() => {
+    if (!cover && resource.type === 'video' && resource.url) {
+      trpc.ffmpeg.analyze.query({ path: resource.url }).then((meta: any) => {
+        if (meta && meta.cover) {
+          setCover(meta.cover)
+        }
+      }).catch(err => {
+        console.error('Failed to analyze resource URL:', err)
+      })
+    }
+  }, [resource.url, resource.type, cover])
+
   return (
-    <div className={`media-card ${resource.selected ? 'media-card--selected' : ''}`} id={`media-card-${resource.id}`}>
-      {/* 4.4 Top — Checkbox only (always visible) */}
-      <div className="media-card__top-controls">
-        <input
-          type="checkbox"
-          className="media-card__checkbox"
-          checked={resource.selected || false}
-          onChange={(e) => onSelect?.(resource.id, e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          aria-label={`选择 ${resource.title}`}
-        />
-      </div>
+    <>
+      <div className={`media-card ${resource.selected ? 'media-card--selected' : ''}`} id={`media-card-${resource.id}`}>
+        {/* 4.4 Top — Checkbox only (always visible) */}
+        <div className="media-card__top-controls">
+          <input
+            type="checkbox"
+            className="media-card__checkbox"
+            checked={resource.selected || false}
+            onChange={(e) => onSelect?.(resource.id, e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`选择 ${resource.title}`}
+          />
+        </div>
 
-      {/* 4.2 Thumbnail */}
-      <div className="media-card__thumbnail" onClick={() => onPreview?.(resource.id)}>
-        {resource.thumbnailUrl ? (
-          <img src={resource.thumbnailUrl} alt={resource.title} loading="lazy" />
-        ) : (
-          <span className="media-card__thumbnail-placeholder">
-            {resource.type === 'video' ? (
+        {/* 4.2 Thumbnail */}
+        <div className="media-card__thumbnail" onClick={() => onPreview?.(resource.id)} style={{ position: 'relative' }}>
+          {cover ? (
+            <img src={cover} alt={resource.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <span className="media-card__thumbnail-placeholder">
+              {resource.type === 'video' ? (
+                <PlayCircleOutlined />
+              ) : resource.type === 'audio' ? (
+                <SoundOutlined />
+              ) : (
+                <PictureOutlined />
+              )}
+            </span>
+          )}
+
+          {resource.type === 'video' && (
+            <div className="media-card__thumbnail-overlay">
               <PlayCircleOutlined />
-            ) : resource.type === 'audio' ? (
-              <SoundOutlined />
-            ) : (
-              <PictureOutlined />
-            )}
-          </span>
-        )}
+            </div>
+          )}
 
-        {/* Type badge */}
-        <span className={`media-card__type-badge media-card__type-badge--${resource.type}`}>
-          {typeIcons[resource.type]}
-          <span>{typeLabels[resource.type]}</span>
-        </span>
+          {/* Type badge */}
+          <span className={`media-card__type-badge media-card__type-badge--${resource.type}`}>
+            {typeIcons[resource.type]}
+            <span>{typeLabels[resource.type]}</span>
+          </span>
 
-        {/* 4.5 Overlay info */}
-        <div className="media-card__overlay-info">
-          <span className="media-card__overlay-text" title={resource.title}>
-            {resource.title}
-          </span>
-          <span className="media-card__overlay-text media-card__overlay-text--dim">
-            {[resource.size, resource.resolution, resource.duration].filter(Boolean).join(' · ')}
-          </span>
+          {/* 4.5 Overlay info */}
+          <div className="media-card__overlay-info">
+            <span className="media-card__overlay-text" title={resource.title}>
+              {resource.title}
+            </span>
+            <span className="media-card__overlay-text media-card__overlay-text--dim">
+              {[resource.size, resource.resolution, resource.duration].filter(Boolean).join(' · ')}
+            </span>
+          </div>
+        </div>
+
+        {/* 4.3 Bottom Actions — includes delete */}
+        <div className="media-card__actions">
+          <Tooltip title="预览" mouseEnterDelay={0.5}>
+            <button className="media-card__action-btn" onClick={() => onPreview?.(resource.id)} aria-label="预览">
+              <EyeOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="下载" mouseEnterDelay={0.5}>
+            <button className="media-card__action-btn" onClick={() => onDownload?.(resource.id)} aria-label="下载">
+              <DownloadOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="复制链接" mouseEnterDelay={0.5}>
+            <button className="media-card__action-btn" onClick={() => onCopyUrl?.(resource.id)} aria-label="复制链接">
+              <CopyOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="删除" mouseEnterDelay={0.5}>
+            <button
+              className="media-card__action-btn media-card__action-btn--danger"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete?.(resource.id)
+              }}
+              aria-label={`删除 ${resource.title}`}
+            >
+              <DeleteOutlined />
+            </button>
+          </Tooltip>
         </div>
       </div>
-
-      {/* 4.3 Bottom Actions — includes delete */}
-      <div className="media-card__actions">
-        <Tooltip title="预览" mouseEnterDelay={0.5}>
-          <button className="media-card__action-btn" onClick={() => onPreview?.(resource.id)} aria-label="预览">
-            <EyeOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="下载" mouseEnterDelay={0.5}>
-          <button className="media-card__action-btn" onClick={() => onDownload?.(resource.id)} aria-label="下载">
-            <DownloadOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="复制链接" mouseEnterDelay={0.5}>
-          <button className="media-card__action-btn" onClick={() => onCopyUrl?.(resource.id)} aria-label="复制链接">
-            <CopyOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="删除" mouseEnterDelay={0.5}>
-          <button
-            className="media-card__action-btn media-card__action-btn--danger"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete?.(resource.id)
-            }}
-            aria-label={`删除 ${resource.title}`}
-          >
-            <DeleteOutlined />
-          </button>
-        </Tooltip>
-      </div>
-    </div>
+      <style>{`
+      .media-card__thumbnail-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.3);
+        color: #fff;
+        font-size: 24px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        border-radius: inherit;
+        pointer-events: none;
+      }
+      .media-card__thumbnail:hover .media-card__thumbnail-overlay {
+        opacity: 1;
+      }
+    `}</style>
+    </>
   )
 }
