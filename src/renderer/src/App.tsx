@@ -105,7 +105,8 @@ function App(): React.JSX.Element {
         active: data.active,
         sniffedCount: data.sniffedCount,
         identifiedCount: data.identifiedCount,
-        discardedCount: data.discardedCount
+        discardedCount: data.discardedCount,
+        analyzingCount: data.analyzingCount
       })
     })
 
@@ -123,7 +124,7 @@ function App(): React.JSX.Element {
       setSnifferActive(true)
       setSnifferCollapsed(false)
       setResources([])
-      setSnifferStats({ active: true, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
+      setSnifferStats({ active: true, sniffedCount: 0, identifiedCount: 0, discardedCount: 0, analyzingCount: 0 })
       // Trigger initial DOM scan
       setTimeout(() => mainContentRef.current?.scanPageResources(), 300)
     } catch (e) {
@@ -404,7 +405,13 @@ function App(): React.JSX.Element {
     setResources([])
     const partition = getActivePartition()
     trpc.sniffer.reset.mutate({ partition }).catch(() => {})
-    setSnifferStats({ active: snifferActive, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
+    setSnifferStats({
+      active: snifferActive,
+      sniffedCount: 0,
+      identifiedCount: 0,
+      discardedCount: 0,
+      analyzingCount: 0
+    })
   }, [getActivePartition, snifferActive])
 
   const handleResourceDelete = useCallback((id: string) => {

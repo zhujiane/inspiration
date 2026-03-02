@@ -18,6 +18,8 @@ export interface SnifferStats {
   sniffedCount: number
   identifiedCount: number
   discardedCount: number
+  /** 精确的正在分析中数量（来自主进程 analyzingUrls.size） */
+  analyzingCount?: number
 }
 
 interface SnifferPanelProps {
@@ -59,7 +61,10 @@ export default function SnifferPanel({
 }: SnifferPanelProps): React.JSX.Element {
   const selectedCount = resources.filter((r) => r.selected).length
 
-  const analyzing = (stats?.sniffedCount ?? 0) - (stats?.identifiedCount ?? 0) - (stats?.discardedCount ?? 0)
+  // 优先使用主进程广播的精确值，兼容旧版 fallback 到差值推算
+  const analyzing =
+    stats?.analyzingCount ??
+    Math.max(0, (stats?.sniffedCount ?? 0) - (stats?.identifiedCount ?? 0) - (stats?.discardedCount ?? 0))
   const sniffedCount = stats?.sniffedCount ?? 0
   const identifiedCount = stats?.identifiedCount ?? 0
   const discardedCount = stats?.discardedCount ?? 0
