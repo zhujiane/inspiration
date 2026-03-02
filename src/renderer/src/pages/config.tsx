@@ -107,15 +107,7 @@ function serializeValue(value: any): string {
 /* ============================================================
    单项配置编辑器
    ============================================================ */
-function ConfigItemEditor({
-  config,
-  value,
-  onChange
-}: {
-  config: Config
-  value: any
-  onChange: (val: any) => void
-}) {
+function ConfigItemEditor({ config, value, onChange }: { config: Config; value: any; onChange: (val: any) => void }) {
   const { valueType, key } = config
 
   // 特殊处理已知的下拉选项
@@ -185,11 +177,7 @@ function ConfigItemEditor({
   if (key === 'download.path') {
     return (
       <Space.Compact style={{ width: 360 }}>
-        <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="选择下载路径或输入路径..."
-        />
+        <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="选择下载路径或输入路径..." />
         <Tooltip title="选择文件夹">
           <Button
             icon={<FolderOpenOutlined />}
@@ -218,14 +206,7 @@ function ConfigItemEditor({
 
   // Number → InputNumber
   if (valueType === 'number') {
-    return (
-      <InputNumber
-        value={value}
-        onChange={(v) => onChange(v ?? 0)}
-        min={0}
-        style={{ width: 200 }}
-      />
-    )
+    return <InputNumber value={value} onChange={(v) => onChange(v ?? 0)} min={0} style={{ width: 200 }} />
   }
 
   // Proxy 地址
@@ -241,13 +222,7 @@ function ConfigItemEditor({
   }
 
   // Default: string → Input
-  return (
-    <Input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ width: 300 }}
-    />
-  )
+  return <Input value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 300 }} />
 }
 
 /* ============================================================
@@ -282,13 +257,10 @@ function ConfigGroupPanel({
     setHasChanges(false)
   }, [configs])
 
-  const handleChange = useCallback(
-    (key: string, val: any) => {
-      setLocalValues((prev) => ({ ...prev, [key]: val }))
-      setHasChanges(true)
-    },
-    []
-  )
+  const handleChange = useCallback((key: string, val: any) => {
+    setLocalValues((prev) => ({ ...prev, [key]: val }))
+    setHasChanges(true)
+  }, [])
 
   const handleSave = useCallback(() => {
     const changes = configs.map((c) => ({
@@ -385,10 +357,7 @@ function ConfigGroupPanel({
                   {config.label || config.key}
                 </Text>
                 {config.isSystem === 1 && (
-                  <Tag
-                    color="blue"
-                    style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}
-                  >
+                  <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
                     系统
                   </Tag>
                 )}
@@ -416,9 +385,7 @@ function ConfigGroupPanel({
                 onChange={(val) => handleChange(config.key, val)}
               />
               {config.defaultValue !== null && config.defaultValue !== undefined && (
-                <Tooltip
-                  title={`默认值: ${config.defaultValue}`}
-                >
+                <Tooltip title={`默认值: ${config.defaultValue}`}>
                   <Button
                     type="text"
                     size="small"
@@ -430,9 +397,7 @@ function ConfigGroupPanel({
               )}
             </div>
           </div>
-          {idx < configs.length - 1 && (
-            <Divider style={{ margin: 0 }} dashed />
-          )}
+          {idx < configs.length - 1 && <Divider style={{ margin: 0 }} dashed />}
         </div>
       ))}
 
@@ -453,12 +418,7 @@ function ConfigGroupPanel({
           <Tag icon={<InfoCircleOutlined />} color="warning">
             有未保存的更改
           </Tag>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={handleSave}
-            loading={saving}
-          >
+          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
             保存更改
           </Button>
         </div>
@@ -629,10 +589,7 @@ export default function ConfigPage() {
         overflow: 'auto'
       }}
     >
-      <Card
-        variant="borderless"
-        styles={{ body: { padding: '16px 24px' } }}
-      >
+      <Card variant="borderless" styles={{ body: { padding: '16px 24px' } }}>
         {/* Page header */}
         <div
           style={{

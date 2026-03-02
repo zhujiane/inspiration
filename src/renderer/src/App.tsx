@@ -246,7 +246,7 @@ function App(): React.JSX.Element {
                     }
                     reader.readAsDataURL(blob)
                   })
-                  .catch(() => { })
+                  .catch(() => {})
               }
             }
           }
@@ -403,7 +403,7 @@ function App(): React.JSX.Element {
   const handleClearAll = useCallback(() => {
     setResources([])
     const partition = getActivePartition()
-    trpc.sniffer.reset.mutate({ partition }).catch(() => { })
+    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
     setSnifferStats({ active: snifferActive, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 })
   }, [getActivePartition, snifferActive])
 
@@ -448,9 +448,9 @@ function App(): React.JSX.Element {
   // Filter resources by search
   const filteredResources = snifferSearch
     ? resources.filter(
-      (r) =>
-        r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
-    )
+        (r) =>
+          r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
+      )
     : resources
 
   return (
@@ -518,7 +518,7 @@ function App(): React.JSX.Element {
                 setTabs([])
                 setUrl('')
               }}
-              onCloseRight={() => { }}
+              onCloseRight={() => {}}
               onCloseOthers={() => {
                 setTabs((prev) => prev.filter((t) => t.id === activeTabId))
               }}

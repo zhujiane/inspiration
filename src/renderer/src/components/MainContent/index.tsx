@@ -84,7 +84,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
         .executeJavaScript(DOM_SCAN_SCRIPT)
         .then((urls: string[]) => {
           if (!urls || urls.length === 0) return
-            ; (window as any).snifferBridge?.scanUrls(partition, urls)
+          ;(window as any).snifferBridge?.scanUrls(partition, urls)
         })
         .catch(() => {
           /* ignore */

@@ -6,7 +6,7 @@ log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
 
 // 设置日志文件路径
-// 默认路径: 
+// 默认路径:
 // Windows: %USERDATA%\AppData\Roaming\<app name>\logs\main.log
 // log.transports.file.resolvePathFn = () => path.join(app.getPath('userData'), 'logs/main.log')
 

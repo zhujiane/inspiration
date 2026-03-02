@@ -34,9 +34,29 @@ const requestListeners = new Map<string, () => void>()
  * Media URL extensions that are worth probing
  */
 const MEDIA_EXTS = new Set([
-  'm3u8', 'mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'ts', 'mpd',
-  'mp3', 'aac', 'ogg', 'flac', 'wav', 'm4a',
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'svg'
+  'm3u8',
+  'mp4',
+  'webm',
+  'mkv',
+  'avi',
+  'mov',
+  'flv',
+  'ts',
+  'mpd',
+  'mp3',
+  'aac',
+  'ogg',
+  'flac',
+  'wav',
+  'm4a',
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'avif',
+  'svg'
 ])
 
 /**
@@ -121,7 +141,10 @@ function fetchContentLength(url: string): Promise<number> {
         resolve(cl || 0)
       })
       req.on('error', () => resolve(0))
-      req.on('timeout', () => { req.destroy(); resolve(0) })
+      req.on('timeout', () => {
+        req.destroy()
+        resolve(0)
+      })
       req.end()
     } catch {
       resolve(0)
@@ -149,7 +172,8 @@ async function analyzeUrl(url: string, state: SnifferState): Promise<AnalyzedRes
     const formatName: string = metadata.format?.format_name ?? ''
 
     const IMAGE_FORMATS = new Set(['image2', 'png_pipe', 'jpeg_pipe', 'mjpeg', 'gif', 'webp_pipe', 'bmp_pipe'])
-    const isImage = IMAGE_FORMATS.has(formatName) || videoStreams.some((s: any) => s.codec_name === 'mjpeg' && duration === 0)
+    const isImage =
+      IMAGE_FORMATS.has(formatName) || videoStreams.some((s: any) => s.codec_name === 'mjpeg' && duration === 0)
 
     let type: 'video' | 'audio' | 'image' | 'other' = 'other'
     if (isImage && videoStreams.length === 1) {
@@ -247,15 +271,17 @@ function startInterception(partition: string) {
     state.sniffedCount++
     broadcastStats(partition)
     state.analyzingUrls.add(url)
-    analyzeUrl(url, state).then((resource) => {
-      state.analyzingUrls.delete(url)
-      broadcastStats(partition)
-      if (resource) {
-        broadcast('sniffer:resource', { partition, resource })
-      }
-    }).catch(() => {
-      state.analyzingUrls.delete(url)
-    })
+    analyzeUrl(url, state)
+      .then((resource) => {
+        state.analyzingUrls.delete(url)
+        broadcastStats(partition)
+        if (resource) {
+          broadcast('sniffer:resource', { partition, resource })
+        }
+      })
+      .catch(() => {
+        state.analyzingUrls.delete(url)
+      })
   }
 
   ses.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, onBeforeSendHeaders)
@@ -264,7 +290,9 @@ function startInterception(partition: string) {
     try {
       // Passing null removes the listener
       ses.webRequest.onBeforeSendHeaders(null as any)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   })
 
   log.info(`[Sniffer] Started interception for partition: ${partition}`)
@@ -304,60 +332,54 @@ ipcMain.handle('sniffer:scan-urls', async (_event, { partition, urls }: { partit
     state.sniffedCount++
     broadcastStats(partition)
     state.analyzingUrls.add(url)
-    analyzeUrl(url, state).then((resource) => {
-      state.analyzingUrls.delete(url)
-      broadcastStats(partition)
-      if (resource) {
-        broadcast('sniffer:resource', { partition, resource })
-      }
-    }).catch(() => {
-      state.analyzingUrls.delete(url)
-    })
+    analyzeUrl(url, state)
+      .then((resource) => {
+        state.analyzingUrls.delete(url)
+        broadcastStats(partition)
+        if (resource) {
+          broadcast('sniffer:resource', { partition, resource })
+        }
+      })
+      .catch(() => {
+        state.analyzingUrls.delete(url)
+      })
   }
 })
 
 // ─── tRPC router ─────────────────────────────────────────────────────────────
 
 export const snifferRouter = trpc.router({
-  start: publicProcedure
-    .input(z.object({ partition: z.string() }))
-    .mutation(({ input }) => {
-      startInterception(input.partition)
-      return { success: true }
-    }),
+  start: publicProcedure.input(z.object({ partition: z.string() })).mutation(({ input }) => {
+    startInterception(input.partition)
+    return { success: true }
+  }),
 
-  stop: publicProcedure
-    .input(z.object({ partition: z.string() }))
-    .mutation(({ input }) => {
-      stopInterception(input.partition)
-      return { success: true }
-    }),
+  stop: publicProcedure.input(z.object({ partition: z.string() })).mutation(({ input }) => {
+    stopInterception(input.partition)
+    return { success: true }
+  }),
 
-  reset: publicProcedure
-    .input(z.object({ partition: z.string() }))
-    .mutation(({ input }) => {
-      const state = snifferStates.get(input.partition)
-      if (state) {
-        state.sniffedCount = 0
-        state.identifiedCount = 0
-        state.discardedCount = 0
-        state.seenUrls.clear()
-        state.analyzingUrls.clear()
-        broadcastStats(input.partition)
-      }
-      return { success: true }
-    }),
+  reset: publicProcedure.input(z.object({ partition: z.string() })).mutation(({ input }) => {
+    const state = snifferStates.get(input.partition)
+    if (state) {
+      state.sniffedCount = 0
+      state.identifiedCount = 0
+      state.discardedCount = 0
+      state.seenUrls.clear()
+      state.analyzingUrls.clear()
+      broadcastStats(input.partition)
+    }
+    return { success: true }
+  }),
 
-  getStats: publicProcedure
-    .input(z.object({ partition: z.string() }))
-    .query(({ input }) => {
-      const state = snifferStates.get(input.partition)
-      if (!state) return { active: false, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 }
-      return {
-        active: state.active,
-        sniffedCount: state.sniffedCount,
-        identifiedCount: state.identifiedCount,
-        discardedCount: state.discardedCount
-      }
-    })
+  getStats: publicProcedure.input(z.object({ partition: z.string() })).query(({ input }) => {
+    const state = snifferStates.get(input.partition)
+    if (!state) return { active: false, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 }
+    return {
+      active: state.active,
+      sniffedCount: state.sniffedCount,
+      identifiedCount: state.identifiedCount,
+      discardedCount: state.discardedCount
+    }
+  })
 })

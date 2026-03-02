@@ -54,18 +54,21 @@ export default function MediaCard({
   onCopyUrl
 }: MediaCardProps): React.JSX.Element {
   const [cover, setCover] = useState<string | undefined>(
-    resource.type === 'image' ? (resource.thumbnailUrl || resource.url) : resource.thumbnailUrl
+    resource.type === 'image' ? resource.thumbnailUrl || resource.url : resource.thumbnailUrl
   )
 
   useEffect(() => {
     if (!cover && resource.type === 'video' && resource.url) {
-      trpc.ffmpeg.analyze.query({ path: resource.url }).then((meta: any) => {
-        if (meta && meta.cover) {
-          setCover(meta.cover)
-        }
-      }).catch(err => {
-        console.error('Failed to analyze resource URL:', err)
-      })
+      trpc.ffmpeg.analyze
+        .query({ path: resource.url })
+        .then((meta: any) => {
+          if (meta && meta.cover) {
+            setCover(meta.cover)
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to analyze resource URL:', err)
+        })
     }
   }, [resource.url, resource.type, cover])
 
@@ -85,9 +88,18 @@ export default function MediaCard({
         </div>
 
         {/* 4.2 Thumbnail */}
-        <div className="media-card__thumbnail" onClick={() => onPreview?.(resource.id)} style={{ position: 'relative' }}>
+        <div
+          className="media-card__thumbnail"
+          onClick={() => onPreview?.(resource.id)}
+          style={{ position: 'relative' }}
+        >
           {cover ? (
-            <img src={cover} alt={resource.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img
+              src={cover}
+              alt={resource.title}
+              loading="lazy"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
           ) : (
             <span className="media-card__thumbnail-placeholder">
               {resource.type === 'video' ? (

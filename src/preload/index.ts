@@ -18,8 +18,7 @@ if (process.contextIsolated) {
     // Sniffer IPC bridge
     contextBridge.exposeInMainWorld('snifferBridge', {
       // Renderer → Main: send DOM-scanned URLs
-      scanUrls: (partition: string, urls: string[]) =>
-        ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
+      scanUrls: (partition: string, urls: string[]) => ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
       // Main → Renderer: listen for new resources
       onResource: (cb: (data: any) => void) => {
         const handler = (_: any, data: any) => cb(data)
@@ -47,8 +46,7 @@ if (process.contextIsolated) {
   }
   // @ts-ignore
   window.snifferBridge = {
-    scanUrls: (partition: string, urls: string[]) =>
-      ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
+    scanUrls: (partition: string, urls: string[]) => ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
     onResource: (cb: (data: any) => void) => {
       const handler = (_: any, data: any) => cb(data)
       ipcRenderer.on('sniffer:resource', handler)

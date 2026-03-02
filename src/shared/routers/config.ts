@@ -75,11 +75,7 @@ export const configRouter = trpc.router({
    * 返回: { key, value, parsedValue, valueType }
    */
   getByKey: publicProcedure.input(configKeySchema).query(async ({ input }) => {
-    const result = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.key, input.key))
-      .limit(1)
+    const result = await db.select().from(configs).where(eq(configs.key, input.key)).limit(1)
     if (result.length === 0) {
       throw new BizError(`配置项 "${input.key}" 不存在`, 404)
     }
@@ -94,10 +90,7 @@ export const configRouter = trpc.router({
    * 按分组获取配置列表
    */
   getByGroup: publicProcedure.input(configGroupSchema).query(async ({ input }) => {
-    const result = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.group, input.group))
+    const result = await db.select().from(configs).where(eq(configs.group, input.group))
     // 按 order 排序
     result.sort((a, b) => a.order - b.order)
     return result
@@ -166,30 +159,24 @@ export const configRouter = trpc.router({
    * 如果 key 存在则更新 value，不存在则创建
    */
   setByKey: publicProcedure
-    .input(z.object({
-      key: z.string().min(1),
-      value: z.string(),
-      group: z.string().optional(),
-      valueType: z.enum(['string', 'number', 'boolean', 'json']).optional()
-    }))
+    .input(
+      z.object({
+        key: z.string().min(1),
+        value: z.string(),
+        group: z.string().optional(),
+        valueType: z.enum(['string', 'number', 'boolean', 'json']).optional()
+      })
+    )
     .mutation(async ({ input }) => {
       const { key, value, group = 'general', valueType } = input
 
-      const [existing] = await db
-        .select()
-        .from(configs)
-        .where(eq(configs.key, key))
-        .limit(1)
+      const [existing] = await db.select().from(configs).where(eq(configs.key, key)).limit(1)
 
       if (existing) {
         // 更新
         const updateData: Record<string, unknown> = { value, updatedAt: new Date() }
         if (valueType) updateData.valueType = valueType
-        const result = await db
-          .update(configs)
-          .set(updateData)
-          .where(eq(configs.id, existing.id))
-          .returning()
+        const result = await db.update(configs).set(updateData).where(eq(configs.id, existing.id)).returning()
         return result[0]
       } else {
         // 创建
@@ -216,11 +203,7 @@ export const configRouter = trpc.router({
     for (const item of input) {
       const { key, value, group = 'general', valueType = 'string' } = item
 
-      const [existing] = await db
-        .select()
-        .from(configs)
-        .where(eq(configs.key, key))
-        .limit(1)
+      const [existing] = await db.select().from(configs).where(eq(configs.key, key)).limit(1)
 
       if (existing) {
         const result = await db
@@ -230,10 +213,7 @@ export const configRouter = trpc.router({
           .returning()
         results.push(result[0])
       } else {
-        const result = await db
-          .insert(configs)
-          .values({ key, value, group, valueType })
-          .returning()
+        const result = await db.insert(configs).values({ key, value, group, valueType }).returning()
         results.push(result[0])
       }
     }
@@ -245,11 +225,7 @@ export const configRouter = trpc.router({
    * 删除配置（系统内置配置不可删除）
    */
   delete: publicProcedure.input(idSchema).mutation(async ({ input }) => {
-    const [existing] = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.id, input.id))
-      .limit(1)
+    const [existing] = await db.select().from(configs).where(eq(configs.id, input.id)).limit(1)
 
     if (!existing) {
       throw new BizError('配置项不存在', 404)
@@ -266,11 +242,7 @@ export const configRouter = trpc.router({
    * 恢复单个配置项为默认值
    */
   resetToDefault: publicProcedure.input(idSchema).mutation(async ({ input }) => {
-    const [existing] = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.id, input.id))
-      .limit(1)
+    const [existing] = await db.select().from(configs).where(eq(configs.id, input.id)).limit(1)
 
     if (!existing) {
       throw new BizError('配置项不存在', 404)
@@ -291,18 +263,12 @@ export const configRouter = trpc.router({
    * 恢复某个分组的所有配置为默认值
    */
   resetGroupToDefault: publicProcedure.input(configGroupSchema).mutation(async ({ input }) => {
-    const items = await db
-      .select()
-      .from(configs)
-      .where(eq(configs.group, input.group))
+    const items = await db.select().from(configs).where(eq(configs.group, input.group))
 
     let resetCount = 0
     for (const item of items) {
       if (item.defaultValue) {
-        await db
-          .update(configs)
-          .set({ value: item.defaultValue, updatedAt: new Date() })
-          .where(eq(configs.id, item.id))
+        await db.update(configs).set({ value: item.defaultValue, updatedAt: new Date() }).where(eq(configs.id, item.id))
         resetCount++
       }
     }
