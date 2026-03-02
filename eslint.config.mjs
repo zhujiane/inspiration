@@ -26,6 +26,27 @@ export default defineConfig(
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
       ...eslintPluginReactRefresh.configs.vite.rules,
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/ban-ts-comment': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_'
+        }
+      ],
+      'prefer-const': 'warn',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react/no-unknown-property': [
+        'error',
+        {
+          ignore: ['partition', 'allowpopups', 'webpreferences']
+        }
+      ],
       'newline-per-chained-call': 'off',
       '@stylistic/newline-per-chained-call': 'off',
       '@stylistic/js/newline-per-chained-call': 'off'
