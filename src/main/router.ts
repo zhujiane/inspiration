@@ -1,5 +1,7 @@
 import { trpc } from '@shared/routers/trpc'
-import { appRouter as sharedRouter } from '@shared/routers/router'
+import { resourceRouter } from '@shared/routers/resource'
+import { bookmarkRouter } from '@shared/routers/bookmark'
+import { configRouter } from '@shared/routers/config'
 import { systemRouter } from './routers/system'
 import { ffmpegRouter } from './routers/ffmpeg'
 import { snifferRouter } from './routers/sniffer'
@@ -14,9 +16,11 @@ import { snifferRouter } from './routers/sniffer'
  */
 export const appRouter = trpc.router({
   /**
-   * 自动展开 sharedRouter 中的所有子路由 (resource, bookmark 等)
+   * 共享业务路由（与 web 侧保持一致）
    */
-  ...sharedRouter._def.procedures,
+  resource: resourceRouter,
+  bookmark: bookmarkRouter,
+  config: configRouter,
 
   /**
    * 挂载 Electron 特有的子路由

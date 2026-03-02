@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Card,
   Tabs,
-  Form,
   Input,
   InputNumber,
   Switch,
@@ -42,6 +41,11 @@ interface GroupMeta {
   label: string
   icon: React.ReactNode
   description: string
+}
+
+type ConfigItem = Omit<Config, 'createdAt' | 'updatedAt'> & {
+  createdAt: Date | string
+  updatedAt: Date | string
 }
 
 const GROUP_META: GroupMeta[] = [
@@ -107,7 +111,15 @@ function serializeValue(value: any): string {
 /* ============================================================
    单项配置编辑器
    ============================================================ */
-function ConfigItemEditor({ config, value, onChange }: { config: Config; value: any; onChange: (val: any) => void }) {
+function ConfigItemEditor({
+  config,
+  value,
+  onChange
+}: {
+  config: ConfigItem
+  value: any
+  onChange: (val: any) => void
+}) {
   const { valueType, key } = config
 
   // 特殊处理已知的下拉选项
@@ -236,7 +248,7 @@ function ConfigGroupPanel({
   saving
 }: {
   groupKey: string
-  configs: Config[]
+  configs: ConfigItem[]
   onSave: (changes: { key: string; value: string; valueType: string }[]) => void
   onResetGroup: (group: string) => void
   saving: boolean
@@ -272,7 +284,7 @@ function ConfigGroupPanel({
   }, [configs, localValues, onSave])
 
   const handleResetItem = useCallback(
-    (config: Config) => {
+    (config: ConfigItem) => {
       if (config.defaultValue !== null && config.defaultValue !== undefined) {
         const parsed = parseValue(config.defaultValue, config.valueType)
         setLocalValues((prev) => ({ ...prev, [config.key]: parsed }))
@@ -435,14 +447,14 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeGroup, setActiveGroup] = useState('general')
-  const [allConfigs, setAllConfigs] = useState<Config[]>([])
+  const [allConfigs, setAllConfigs] = useState<ConfigItem[]>([])
 
   // --- Fetch all configs ---
   const fetchConfigs = useCallback(async () => {
     setLoading(true)
     try {
       const result = await trpc.config.list.query()
-      setAllConfigs(result as Config[])
+      setAllConfigs(result as ConfigItem[])
     } catch (error) {
       console.error('Failed to fetch configs:', error)
       message.error('获取配置失败')
@@ -457,7 +469,7 @@ export default function ConfigPage() {
 
   // --- Grouped configs ---
   const groupedConfigs = useMemo(() => {
-    const map: Record<string, Config[]> = {}
+    const map: Record<string, ConfigItem[]> = {}
     allConfigs.forEach((c) => {
       if (!map[c.group]) map[c.group] = []
       map[c.group].push(c)

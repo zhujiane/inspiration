@@ -12,7 +12,8 @@ if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
 }
 
-// ─── State per webview partition ─────────────────────────────────────────────
+const MAX_CONCURRENT_ANALYZE = 4
+const MAX_SEEN_URLS = 2000
 
 interface SnifferState {
   active: boolean
@@ -21,18 +22,34 @@ interface SnifferState {
   identifiedCount: number
   discardedCount: number
   seenUrls: Set<string>
+  seenOrder: string[]
   analyzingUrls: Set<string>
+  pendingUrls: string[]
+  runningCount: number
+}
+
+export interface SnifferStatsPayload {
+  partition: string
+  active: boolean
+  sniffedCount: number
+  identifiedCount: number
+  discardedCount: number
+}
+
+interface AnalyzedResource {
+  id: string
+  type: 'video' | 'audio' | 'image'
+  url: string
+  title: string
+  size?: string
+  resolution?: string
+  duration?: string
+  thumbnailUrl?: string
 }
 
 const snifferStates = new Map<string, SnifferState>()
-// Map partition → unsubscribe function
-const requestListeners = new Map<string, () => void>()
+const listenedPartitions = new Set<string>()
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Media URL extensions that are worth probing
- */
 const MEDIA_EXTS = new Set([
   'm3u8',
   'mp4',
@@ -59,9 +76,8 @@ const MEDIA_EXTS = new Set([
   'svg'
 ])
 
-/**
- * Noise URLs to skip quickly
- */
+const IMAGE_FORMATS = new Set(['image2', 'png_pipe', 'jpeg_pipe', 'mjpeg', 'gif', 'webp_pipe', 'bmp_pipe'])
+
 const SKIP_PATTERNS = [
   /\.(js|css|html|htm|json|xml|woff2?|ttf|eot|ico|txt|map)(\?|$)/i,
   /^data:/,
@@ -71,6 +87,31 @@ const SKIP_PATTERNS = [
   /analytics|tracking|beacon|ping|telemetry/i
 ]
 
+function createState(partition: string): SnifferState {
+  return {
+    active: true,
+    partition,
+    sniffedCount: 0,
+    identifiedCount: 0,
+    discardedCount: 0,
+    seenUrls: new Set(),
+    seenOrder: [],
+    analyzingUrls: new Set(),
+    pendingUrls: [],
+    runningCount: 0
+  }
+}
+
+function statsOf(state?: SnifferState, partition?: string): SnifferStatsPayload {
+  return {
+    partition: state?.partition ?? partition ?? '',
+    active: state?.active ?? false,
+    sniffedCount: state?.sniffedCount ?? 0,
+    identifiedCount: state?.identifiedCount ?? 0,
+    discardedCount: state?.discardedCount ?? 0
+  }
+}
+
 function mightBeMedia(url: string): boolean {
   if (!url || !url.startsWith('http')) return false
   for (const p of SKIP_PATTERNS) {
@@ -79,11 +120,8 @@ function mightBeMedia(url: string): boolean {
   try {
     const u = new URL(url)
     const ext = u.pathname.split('.').pop()?.toLowerCase() ?? ''
-    // 1. explicit ext match
     if (MEDIA_EXTS.has(ext)) return true
-    // 2. path hints
     if (/\/(video|audio|media|hls|stream|m3u8|playlist|mp4|ts|mp3)\//i.test(u.pathname)) return true
-    // 3. known CDN / API patterns
     if (/\.(oss|cos|cdn|bce|myqcloud|aliyuncs)\./i.test(u.hostname)) return true
     return false
   } catch {
@@ -91,9 +129,6 @@ function mightBeMedia(url: string): boolean {
   }
 }
 
-/**
- * Probe a URL with ffprobe (with a 10 s timeout)
- */
 function probeUrl(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('ffprobe timeout')), 10_000)
@@ -128,9 +163,6 @@ function formatSize(bytes: number): string {
   return `${bytes}B`
 }
 
-/**
- * Fetch Content-Length of a URL without downloading
- */
 function fetchContentLength(url: string): Promise<number> {
   return new Promise((resolve) => {
     try {
@@ -152,17 +184,6 @@ function fetchContentLength(url: string): Promise<number> {
   })
 }
 
-interface AnalyzedResource {
-  id: string
-  type: 'video' | 'audio' | 'image'
-  url: string
-  title: string
-  size?: string
-  resolution?: string
-  duration?: string
-  thumbnailUrl?: string
-}
-
 async function analyzeUrl(url: string, state: SnifferState): Promise<AnalyzedResource | null> {
   try {
     const metadata = await probeUrl(url)
@@ -171,31 +192,22 @@ async function analyzeUrl(url: string, state: SnifferState): Promise<AnalyzedRes
     const duration = parseDuration(metadata.format?.duration)
     const formatName: string = metadata.format?.format_name ?? ''
 
-    const IMAGE_FORMATS = new Set(['image2', 'png_pipe', 'jpeg_pipe', 'mjpeg', 'gif', 'webp_pipe', 'bmp_pipe'])
     const isImage =
       IMAGE_FORMATS.has(formatName) || videoStreams.some((s: any) => s.codec_name === 'mjpeg' && duration === 0)
 
     let type: 'video' | 'audio' | 'image' | 'other' = 'other'
-    if (isImage && videoStreams.length === 1) {
-      type = 'image'
-    } else if (videoStreams.length > 0 && duration > 0) {
-      type = 'video'
-    } else if (audioStreams.length > 0 && videoStreams.length === 0) {
-      type = 'audio'
-    }
+    if (isImage && videoStreams.length === 1) type = 'image'
+    else if (videoStreams.length > 0 && duration > 0) type = 'video'
+    else if (audioStreams.length > 0 && videoStreams.length === 0) type = 'audio'
 
     if (type === 'other') return null
 
     state.identifiedCount++
 
-    // Build resource
     const videoStream = videoStreams[0]
     const sizePx = videoStream ? `${videoStream.width}×${videoStream.height}` : undefined
-
-    // Get file size via HEAD
     const bytes = await fetchContentLength(url)
 
-    // Extract filename from URL
     let title = ''
     try {
       const u = new URL(url)
@@ -220,9 +232,7 @@ async function analyzeUrl(url: string, state: SnifferState): Promise<AnalyzedRes
   }
 }
 
-// ─── Send event to all renderer windows ──────────────────────────────────────
-
-function broadcast(channel: string, payload: any) {
+function broadcast(channel: string, payload: any): void {
   const wins = BrowserWindow.getAllWindows()
   for (const win of wins) {
     if (!win.isDestroyed()) {
@@ -231,122 +241,106 @@ function broadcast(channel: string, payload: any) {
   }
 }
 
-function broadcastStats(partition: string) {
-  const st = snifferStates.get(partition)
-  if (!st) return
-  broadcast('sniffer:stats', {
-    partition,
-    sniffedCount: st.sniffedCount,
-    identifiedCount: st.identifiedCount,
-    discardedCount: st.discardedCount,
-    active: st.active
-  })
+function broadcastStats(partition: string, state?: SnifferState): void {
+  broadcast('sniffer:stats', statsOf(state, partition))
 }
 
-// ─── Start / Stop interception ────────────────────────────────────────────────
+function rememberSeenUrl(state: SnifferState, url: string): void {
+  state.seenUrls.add(url)
+  state.seenOrder.push(url)
 
-function startInterception(partition: string) {
-  stopInterception(partition)
+  if (state.seenOrder.length <= MAX_SEEN_URLS) return
 
-  const ses = session.fromPartition(partition)
-  const state: SnifferState = {
-    active: true,
-    partition,
-    sniffedCount: 0,
-    identifiedCount: 0,
-    discardedCount: 0,
-    seenUrls: new Set(),
-    analyzingUrls: new Set()
+  const stale = state.seenOrder.shift()
+  if (stale) {
+    state.seenUrls.delete(stale)
   }
-  snifferStates.set(partition, state)
+}
 
-  const onBeforeSendHeaders = (
-    details: Electron.OnBeforeSendHeadersListenerDetails,
-    callback: (response: Electron.BeforeSendResponse) => void
-  ) => {
-    callback({ requestHeaders: details.requestHeaders })
-    const url = details.url
-    if (!mightBeMedia(url) || state.seenUrls.has(url) || state.analyzingUrls.has(url)) return
-    state.seenUrls.add(url)
-    state.sniffedCount++
-    broadcastStats(partition)
+function drainQueue(partition: string, state: SnifferState): void {
+  while (state.active && state.runningCount < MAX_CONCURRENT_ANALYZE && state.pendingUrls.length > 0) {
+    const url = state.pendingUrls.shift()
+    if (!url) continue
+
+    state.runningCount++
     state.analyzingUrls.add(url)
-    analyzeUrl(url, state)
+
+    void analyzeUrl(url, state)
       .then((resource) => {
-        state.analyzingUrls.delete(url)
-        broadcastStats(partition)
-        if (resource) {
+        if (resource && snifferStates.get(partition) === state && state.active) {
           broadcast('sniffer:resource', { partition, resource })
         }
       })
-      .catch(() => {
+      .finally(() => {
+        if (snifferStates.get(partition) !== state) return
+
+        state.runningCount = Math.max(0, state.runningCount - 1)
         state.analyzingUrls.delete(url)
+        broadcastStats(partition, state)
+        drainQueue(partition, state)
       })
   }
-
-  ses.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, onBeforeSendHeaders)
-
-  requestListeners.set(partition, () => {
-    try {
-      // Passing null removes the listener
-      ses.webRequest.onBeforeSendHeaders(null as any)
-    } catch {
-      /* ignore */
-    }
-  })
-
-  log.info(`[Sniffer] Started interception for partition: ${partition}`)
-  broadcastStats(partition)
 }
 
-function stopInterception(partition: string) {
-  const unsubscribe = requestListeners.get(partition)
-  if (unsubscribe) {
-    unsubscribe()
-    requestListeners.delete(partition)
-  }
-  const state = snifferStates.get(partition)
-  if (state) {
-    state.active = false
-    broadcastStats(partition)
-  }
-  log.info(`[Sniffer] Stopped interception for partition: ${partition}`)
+function enqueueUrl(partition: string, state: SnifferState, url: string): void {
+  if (!mightBeMedia(url)) return
+  if (state.seenUrls.has(url) || state.analyzingUrls.has(url)) return
+
+  rememberSeenUrl(state, url)
+  state.sniffedCount++
+  state.pendingUrls.push(url)
+  broadcastStats(partition, state)
+  drainQueue(partition, state)
 }
 
-// ─── IPC for HTML scan results ────────────────────────────────────────────────
-// The renderer sends a list of candidate URLs found in the DOM, and we analyze them
-
-ipcMain.handle('sniffer:scan-urls', async (_event, { partition, urls }: { partition: string; urls: string[] }) => {
+function enqueueUrls(partition: string, urls: string[]): void {
   const state = snifferStates.get(partition)
   if (!state || !state.active) return
 
-  const candidateUrls = (urls as string[]).filter((u) => {
-    if (!mightBeMedia(u)) return false
-    if (state.seenUrls.has(u)) return false
-    return true
+  for (const url of urls) {
+    enqueueUrl(partition, state, url)
+  }
+}
+
+function ensurePartitionListener(partition: string): void {
+  if (listenedPartitions.has(partition)) return
+
+  const ses = session.fromPartition(partition)
+  ses.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+    callback({ requestHeaders: details.requestHeaders })
+    enqueueUrls(partition, [details.url])
   })
 
-  for (const url of candidateUrls) {
-    if (state.seenUrls.has(url) || state.analyzingUrls.has(url)) continue
-    state.seenUrls.add(url)
-    state.sniffedCount++
-    broadcastStats(partition)
-    state.analyzingUrls.add(url)
-    analyzeUrl(url, state)
-      .then((resource) => {
-        state.analyzingUrls.delete(url)
-        broadcastStats(partition)
-        if (resource) {
-          broadcast('sniffer:resource', { partition, resource })
-        }
-      })
-      .catch(() => {
-        state.analyzingUrls.delete(url)
-      })
-  }
-})
+  listenedPartitions.add(partition)
+}
 
-// ─── tRPC router ─────────────────────────────────────────────────────────────
+function startInterception(partition: string): void {
+  const state = createState(partition)
+  snifferStates.set(partition, state)
+  ensurePartitionListener(partition)
+  log.info(`[Sniffer] Started interception for partition: ${partition}`)
+  broadcastStats(partition, state)
+}
+
+function stopInterception(partition: string): void {
+  const state = snifferStates.get(partition)
+  if (!state) {
+    broadcastStats(partition)
+    return
+  }
+
+  state.active = false
+  state.pendingUrls = []
+  state.analyzingUrls.clear()
+  state.seenUrls.clear()
+  state.seenOrder = []
+  log.info(`[Sniffer] Stopped interception for partition: ${partition}`)
+  broadcastStats(partition, state)
+}
+
+ipcMain.handle('sniffer:scan-urls', async (_event, { partition, urls }: { partition: string; urls: string[] }) => {
+  enqueueUrls(partition, urls || [])
+})
 
 export const snifferRouter = trpc.router({
   start: publicProcedure.input(z.object({ partition: z.string() })).mutation(({ input }) => {
@@ -366,20 +360,17 @@ export const snifferRouter = trpc.router({
       state.identifiedCount = 0
       state.discardedCount = 0
       state.seenUrls.clear()
+      state.seenOrder = []
       state.analyzingUrls.clear()
+      state.pendingUrls = []
+      broadcastStats(input.partition, state)
+    } else {
       broadcastStats(input.partition)
     }
     return { success: true }
   }),
 
   getStats: publicProcedure.input(z.object({ partition: z.string() })).query(({ input }) => {
-    const state = snifferStates.get(input.partition)
-    if (!state) return { active: false, sniffedCount: 0, identifiedCount: 0, discardedCount: 0 }
-    return {
-      active: state.active,
-      sniffedCount: state.sniffedCount,
-      identifiedCount: state.identifiedCount,
-      discardedCount: state.discardedCount
-    }
+    return statsOf(snifferStates.get(input.partition), input.partition)
   })
 })

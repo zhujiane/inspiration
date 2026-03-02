@@ -1,10 +1,37 @@
-import { app, shell, BrowserWindow, screen, protocol, session } from 'electron'
+import { app, shell, BrowserWindow, screen, protocol, session, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
 import { setupTRPC } from './trpc'
 import log, { initLogger } from './logger'
+
+// 在 app ready 之前注册需要拦截的自定义协议
+const BLOCKED_PROTOCOLS = ['bitbrowser', 'bytedance', 'snssdk1128', 'snssdk1233', 'snssdk']
+
+const isBlockedProtocolUrl = (url: string): boolean => BLOCKED_PROTOCOLS.some((scheme) => url.startsWith(`${scheme}:`))
+
+const isSafeExternalUrl = (url: string): boolean => {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const registerBlockedProtocolHandlers = (ses: Electron.Session, scope: string): void => {
+  for (const scheme of BLOCKED_PROTOCOLS) {
+    try {
+      ses.protocol.handle(scheme, (request) => {
+        log.info(`Blocked protocol request (${scope}): ${request.url}`)
+        return new Response('', { status: 200 })
+      })
+    } catch (e) {
+      log.warn(`Failed to register protocol handler for ${scheme} (${scope}):`, e)
+    }
+  }
+}
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
@@ -19,9 +46,8 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      sandbox: false,
-      webviewTag: true,
-      webSecurity: false
+      sandbox: true,
+      webviewTag: true
     }
   })
 
@@ -32,8 +58,12 @@ function createWindow(): BrowserWindow {
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     const { url } = details
-    if (url.startsWith('bitbrowser://') || url.startsWith('bytedance://') || url.startsWith('snssdk')) {
+    if (isBlockedProtocolUrl(url)) {
       log.info(`Blocked external protocol in main window: ${url}`)
+      return { action: 'deny' }
+    }
+    if (!isSafeExternalUrl(url)) {
+      log.info(`Blocked unsafe external URL in main window: ${url}`)
       return { action: 'deny' }
     }
     shell.openExternal(url)
@@ -54,9 +84,6 @@ function createWindow(): BrowserWindow {
 
   return mainWindow
 }
-
-// 在 app ready 之前注册需要拦截的自定义协议
-const BLOCKED_PROTOCOLS = ['bitbrowser', 'bytedance', 'snssdk1128', 'snssdk1233', 'snssdk']
 
 protocol.registerSchemesAsPrivileged(
   BLOCKED_PROTOCOLS.map((scheme) => ({
@@ -80,6 +107,9 @@ app.whenReady().then(async () => {
     log.info('Database initialized successfully')
   } catch (error) {
     log.error('Failed to initialize database:', error)
+    dialog.showErrorBox('数据库初始化失败', '应用无法启动，请检查日志后重试。')
+    app.exit(1)
+    return
   }
 
   // Default open or close DevTools by F12 in development
@@ -90,12 +120,7 @@ app.whenReady().then(async () => {
   })
 
   // 在协议层拦截自定义协议，防止 iframe / webview 等触发系统弹窗
-  for (const scheme of BLOCKED_PROTOCOLS) {
-    session.defaultSession.protocol.handle(scheme, (request) => {
-      log.info(`Blocked protocol request: ${request.url}`)
-      return new Response('', { status: 200 })
-    })
-  }
+  registerBlockedProtocolHandlers(session.defaultSession, 'default')
 
   createWindow()
   // Set up tRPC IPC handler
@@ -108,16 +133,7 @@ app.whenReady().then(async () => {
   const registerProtocolHandlers = (ses: Electron.Session): void => {
     if (registeredSessions.has(ses)) return
     registeredSessions.add(ses)
-    for (const scheme of BLOCKED_PROTOCOLS) {
-      try {
-        ses.protocol.handle(scheme, (request) => {
-          log.info(`Blocked protocol request (webview session): ${request.url}`)
-          return new Response('', { status: 200 })
-        })
-      } catch (e) {
-        log.warn(`Failed to register protocol handler for ${scheme}:`, e)
-      }
-    }
+    registerBlockedProtocolHandlers(ses, 'webview-session')
   }
 
   // 拦截 webview 的新窗口打开事件，并为 webview session 注册协议拦截
@@ -128,9 +144,12 @@ app.whenReady().then(async () => {
     if (contents.getType() === 'webview') {
       contents.setWindowOpenHandler(({ url }) => {
         // 检查是否是被拦截的协议
-        const isBlocked = BLOCKED_PROTOCOLS.some((scheme) => url.startsWith(`${scheme}://`))
-        if (isBlocked) {
+        if (isBlockedProtocolUrl(url)) {
           log.info(`Blocked protocol in webview window.open: ${url}`)
+          return { action: 'deny' }
+        }
+        if (!isSafeExternalUrl(url)) {
+          log.info(`Blocked unsafe URL in webview window.open: ${url}`)
           return { action: 'deny' }
         }
         contents.loadURL(url)

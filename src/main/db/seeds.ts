@@ -2,8 +2,19 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { sql } from 'drizzle-orm'
+import { existsSync } from 'fs'
 import { db } from './index'
 import log from '../logger'
+
+const toIdempotentInsert = (statement: string): string =>
+  statement.replace(/^INSERT\s+INTO\s+/i, 'INSERT OR IGNORE INTO ')
+
+const runSeedSqlList = async (label: string, statements: string[]): Promise<void> => {
+  for (const statement of statements) {
+    await db.run(sql.raw(toIdempotentInsert(statement)))
+  }
+  log.info(`${label} initialized (${statements.length} statements)`)
+}
 
 // 初始化数据库表（使用 drizzle-kit 迁移）
 export async function initDb(): Promise<void> {
@@ -13,7 +24,6 @@ export async function initDb(): Promise<void> {
     log.info(`Running migrations from: ${migrationsFolder}`)
 
     // 检查迁移目录是否存在
-    const { existsSync } = await import('fs')
     if (!existsSync(migrationsFolder)) {
       log.error(`Migrations folder not found: ${migrationsFolder}`)
       throw new Error(`Migrations folder not found: ${migrationsFolder}`)
@@ -40,15 +50,7 @@ export async function initDb(): Promise<void> {
         "INSERT INTO bookmarks (id, code, created_at, updated_at, name, \"order\", parent_id, type, url, storage, userDataPath, status, description, icon, isDefault) VALUES (15, 'f6569d03-a496-4911-822e-7a78d6fe55b2', 1770965920, 1770965920, '即梦', 0, 7, 2, 'https://jimeng.jianying.com/', null, null, 0, '', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAABCFBMVEUHBBkbEVcBAAEOCSw6J6c4JZ8dE1sPCi0dE1suH4Y/KbULBiUJBB4DAQwUDEEFAhYXDkoQCjUlF20aEFECA0IMAFc5JqgTCT0sHIEGACkxH441I5sHBDWP0Pp0kNC94+bg+vuA3/4pQWctVpojPIGIrMMNAEhJyf8TeMk0OFZo3///+dlgmLvJr3ac+f8ljdzU9fm+9/9xcIC52cc8gcQdF2VFY2k3F7Q7ObYNGClPgIyU38oxar8hK6WEwu8jAqEPFjI0FpTz/+y63H6C0ugAEWe19OiDyt0LMmxmuv/XkDTAy2PK6te7+9Y03/tfv+NopbVZr/zY6eFBZ3eq5f3b4Zaoxc3i3tFlKI0CAAAACnRSTlPE////wwj/CMTDJScH/AAAAOhJREFUGJUdj+VywzAQBs9S67SWLNkysx1mLkMKSZnx/d+kUr9/uzezMwe1HV3X5ByL2ZhADRQ39z3FhHIOoEuxd9Jryzvlpmkqobvn116KiWSEQBXc1s2jx7lEKVQuHc6ev+d36UX9CIFjWSwaTqt++ZRl2SkCxgIbvZbVcvI1m+YuAlvW3ap8/+z9fOSRyQFjgibj3/lbUdxvMKFACOp2xotiMRrkbSvAQMxGp7++fVk+DBpCaAwoxcd112t2R1dncSg0KUgUaCK8XLUO/SQWABQHjggT3zgwDD/Zlf9ipoexb/xva/sPxFsZnF/rsK0AAAAASUVORK5CYII=', 0);"
       ]
 
-      for (const sqlStr of seedSql) {
-        // 使用 sql.raw 来执行原始 SQL，因为它不带占位符
-        try {
-          await db.run(sql.raw(sqlStr))
-        } catch (e) {
-          log.warn(`Execute seed sql failed: ${sqlStr}`, e)
-        }
-      }
-      log.info('Default data initialized')
+      await runSeedSqlList('Default data', seedSql)
     }
 
     // 初始化系统默认配置
@@ -83,14 +85,7 @@ export async function initDb(): Promise<void> {
         `INSERT INTO configs (code, created_at, updated_at, key, value, value_type, "group", label, description, default_value, "order", is_system) VALUES ('cfg-cache-size', ${now}, ${now}, 'advanced.cacheSize', '512', 'number', 'advanced', '缓存大小', '应用缓存上限（MB）', '512', 2, 1);`
       ]
 
-      for (const sqlStr of configSeeds) {
-        try {
-          await db.run(sql.raw(sqlStr))
-        } catch (e) {
-          log.warn(`Execute config seed sql failed: ${sqlStr}`, e)
-        }
-      }
-      log.info('Default configs initialized')
+      await runSeedSqlList('Default configs', configSeeds)
     }
   } catch (error) {
     log.error('Failed to initialize database:', error)
