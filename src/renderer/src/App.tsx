@@ -10,6 +10,8 @@ import MainContent from './components/MainContent'
 import type { MainContentRef } from './components/MainContent'
 import SnifferPanel from './components/SnifferPanel'
 import type { SnifferStats } from './components/SnifferPanel'
+import type { AdvancedSearchFilters } from './components/SnifferPanel'
+import { DEFAULT_ADVANCED_FILTERS } from './components/SnifferPanel'
 import type { MediaResource } from './components/SnifferPanel/MediaCard'
 import StatusBar from './components/StatusBar'
 import PreviewModal from './components/PreviewModal'
@@ -60,6 +62,7 @@ function App(): React.JSX.Element {
     identifiedCount: 0,
     discardedCount: 0
   })
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters>(DEFAULT_ADVANCED_FILTERS)
 
   // --- Preview State ---
   const [previewVisible, setPreviewVisible] = useState(false)
@@ -452,13 +455,84 @@ function App(): React.JSX.Element {
     [resources]
   )
 
-  // Filter resources by search
-  const filteredResources = snifferSearch
-    ? resources.filter(
+  // Helper: parse size string to KB
+  const parseSizeToKB = (sizeStr?: string): number => {
+    if (!sizeStr) return 0
+    const match = sizeStr.match(/^([\d.]+)\s*(KB|MB|GB|TB)?$/i)
+    if (!match) return 0
+    const value = parseFloat(match[1])
+    const unit = (match[2] || 'KB').toUpperCase()
+    const multipliers: Record<string, number> = { KB: 1, MB: 1024, GB: 1024 * 1024, TB: 1024 * 1024 * 1024 }
+    return value * (multipliers[unit] || 1)
+  }
+
+  // Helper: parse resolution string to width and height
+  const parseResolution = (resStr?: string): { width: number; height: number } => {
+    if (!resStr) return { width: 0, height: 0 }
+    const match = resStr.match(/^(\d+)\s*[×xX]\s*(\d+)$/)
+    if (!match) return { width: 0, height: 0 }
+    return { width: parseInt(match[1], 10), height: parseInt(match[2], 10) }
+  }
+
+  // Helper: parse duration string to seconds
+  const parseDuration = (durationStr?: string): number => {
+    if (!durationStr) return 0
+    const match = durationStr.match(/^(\d+):(\d{2})(?::(\d{2}))?$/)
+    if (!match) return 0
+    const hours = match[3] ? parseInt(match[1], 10) : 0
+    const minutes = match[3] ? parseInt(match[2], 10) : parseInt(match[1], 10)
+    const seconds = match[3] ? parseInt(match[3], 10) : parseInt(match[2], 10)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  // Filter resources by search and advanced filters
+  const filteredResources = useMemo(() => {
+    let result = resources
+
+    // Text search filter
+    if (snifferSearch) {
+      result = result.filter(
         (r) =>
           r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
       )
-    : resources
+    }
+
+    // Advanced filters
+    if (advancedFilters) {
+      result = result.filter((r) => {
+        // Type filter
+        if (advancedFilters.type !== 'all' && r.type !== advancedFilters.type) {
+          return false
+        }
+
+        // Resolution filter (only for images and videos)
+        if (r.type === 'image' || r.type === 'video') {
+          const { width, height } = parseResolution(r.resolution)
+          if (width < advancedFilters.minWidth || height < advancedFilters.minHeight) {
+            return false
+          }
+        }
+
+        // Size filter
+        const sizeKB = parseSizeToKB(r.size)
+        if (sizeKB < advancedFilters.minSize) {
+          return false
+        }
+
+        // Duration filter (only for videos and audio)
+        if (r.type === 'video' || r.type === 'audio') {
+          const durationSec = parseDuration(r.duration)
+          if (durationSec < advancedFilters.minDuration) {
+            return false
+          }
+        }
+
+        return true
+      })
+    }
+
+    return result
+  }, [resources, snifferSearch, advancedFilters])
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
@@ -556,13 +630,14 @@ function App(): React.JSX.Element {
                 collapsed={snifferCollapsed}
                 searchText={snifferSearch}
                 stats={snifferStats}
+                advancedFilters={advancedFilters}
                 onToggle={() => setSnifferCollapsed((p) => !p)}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
                 onClearAll={handleClearAll}
                 onMerge={() => console.log('Merge')}
                 onBatchAction={() => console.log('Batch')}
-                onAdvancedSearch={() => console.log('Advanced search')}
+                onAdvancedFiltersChange={setAdvancedFilters}
                 onResourceSelect={handleResourceSelect}
                 onResourceDelete={handleResourceDelete}
                 onResourcePreview={handleResourcePreview}

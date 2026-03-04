@@ -49,7 +49,8 @@ export default defineConfig(
       ],
       'newline-per-chained-call': 'off',
       '@stylistic/newline-per-chained-call': 'off',
-      '@stylistic/js/newline-per-chained-call': 'off'
+      '@stylistic/js/newline-per-chained-call': 'off',
+      '@typescript-eslint/no-unused-var': 'off'
     }
   },
   eslintConfigPrettier

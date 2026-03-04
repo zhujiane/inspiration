@@ -1,4 +1,5 @@
-import { Tooltip, Progress } from 'antd'
+import { useState, useMemo } from 'react'
+import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
@@ -8,10 +9,28 @@ import {
   RightOutlined,
   FilterOutlined,
   RadarChartOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  UndoOutlined,
+  CloseOutlined
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
+
+export interface AdvancedSearchFilters {
+  type: 'all' | 'image' | 'video' | 'audio'
+  minWidth: number
+  minHeight: number
+  minSize: number // KB
+  minDuration: number // seconds
+}
+
+export const DEFAULT_ADVANCED_FILTERS: AdvancedSearchFilters = {
+  type: 'all',
+  minWidth: 204,
+  minHeight: 240,
+  minSize: 100, // 100KB
+  minDuration: 5 // 5s
+}
 
 export interface SnifferStats {
   active: boolean
@@ -27,6 +46,7 @@ interface SnifferPanelProps {
   collapsed: boolean
   searchText: string
   stats?: SnifferStats
+  advancedFilters?: AdvancedSearchFilters
   onToggle: () => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
@@ -34,6 +54,7 @@ interface SnifferPanelProps {
   onMerge?: () => void
   onBatchAction?: () => void
   onAdvancedSearch?: () => void
+  onAdvancedFiltersChange?: (filters: AdvancedSearchFilters) => void
   onResourceSelect?: (id: string, selected: boolean) => void
   onResourceDelete?: (id: string) => void
   onResourcePreview?: (id: string) => void
@@ -46,6 +67,7 @@ export default function SnifferPanel({
   collapsed,
   searchText,
   stats,
+  advancedFilters,
   onToggle,
   onSearchChange,
   onSelectAll,
@@ -53,12 +75,22 @@ export default function SnifferPanel({
   onMerge,
   onBatchAction,
   onAdvancedSearch,
+  onAdvancedFiltersChange,
   onResourceSelect,
   onResourceDelete,
   onResourcePreview,
   onResourceDownload,
   onResourceCopyUrl
 }: SnifferPanelProps): React.JSX.Element {
+  const [advancedModalVisible, setAdvancedModalVisible] = useState(false)
+  const [tempFilters, setTempFilters] = useState<AdvancedSearchFilters | undefined>(advancedFilters)
+
+  // Sync temp filters when props change
+  useMemo(() => {
+    if (!advancedModalVisible) {
+      setTempFilters(advancedFilters)
+    }
+  }, [advancedFilters, advancedModalVisible])
   const selectedCount = resources.filter((r) => r.selected).length
 
   // 优先使用主进程广播的精确值，兼容旧版 fallback 到差值推算
@@ -193,7 +225,14 @@ export default function SnifferPanel({
                   id="sniffer-search"
                 />
                 <Tooltip title="高级搜索" mouseEnterDelay={0.5}>
-                  <button className="sniffer-panel__advanced-btn" onClick={onAdvancedSearch} aria-label="高级搜索">
+                  <button
+                    className="sniffer-panel__advanced-btn"
+                    onClick={() => {
+                      setTempFilters(advancedFilters)
+                      setAdvancedModalVisible(true)
+                    }}
+                    aria-label="高级搜索"
+                  >
                     <FilterOutlined style={{ marginRight: 2 }} />
                     高级
                   </button>
@@ -236,6 +275,110 @@ export default function SnifferPanel({
           </div>
         </>
       )}
+
+      {/* Advanced Search Modal */}
+      <Modal
+        title="高级搜索"
+        open={advancedModalVisible}
+        onCancel={() => setAdvancedModalVisible(false)}
+        footer={null}
+        width={400}
+        destroyOnHidden
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* 类型过滤 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 60 }}>类型：</span>
+            <Select
+              value={tempFilters?.type ?? 'all'}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, type: val }))}
+              style={{ flex: 1 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'image', label: '图片' },
+                { value: 'video', label: '视频' },
+                { value: 'audio', label: '音频' }
+              ]}
+            />
+          </div>
+
+          {/* 分辨率过滤 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 60 }}>分辨率：</span>
+            <InputNumber
+              value={tempFilters?.minWidth ?? DEFAULT_ADVANCED_FILTERS.minWidth}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, minWidth: val ?? 0 }))}
+              min={0}
+              placeholder="宽度"
+              style={{ width: 80 }}
+            />
+            <span>×</span>
+            <InputNumber
+              value={tempFilters?.minHeight ?? DEFAULT_ADVANCED_FILTERS.minHeight}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, minHeight: val ?? 0 }))}
+              min={0}
+              placeholder="高度"
+              style={{ width: 80 }}
+            />
+            <span style={{ color: '#888', fontSize: 12 }}>最小分辨率</span>
+          </div>
+
+          {/* 大小过滤 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 60 }}>大小：</span>
+            <InputNumber
+              value={tempFilters?.minSize ?? DEFAULT_ADVANCED_FILTERS.minSize}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, minSize: val ?? 0 }))}
+              min={0}
+              style={{ width: 100 }}
+            />
+            <span>KB 以上</span>
+          </div>
+
+          {/* 时长过滤 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 60 }}>时长：</span>
+            <InputNumber
+              value={tempFilters?.minDuration ?? DEFAULT_ADVANCED_FILTERS.minDuration}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, minDuration: val ?? 0 }))}
+              min={0}
+              style={{ width: 100 }}
+            />
+            <span>秒 以上</span>
+          </div>
+
+          {/* 按钮组 */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+            <Space>
+              <Button icon={<UndoOutlined />} onClick={() => setTempFilters(DEFAULT_ADVANCED_FILTERS)}>
+                重置默认
+              </Button>
+              <Button
+                icon={<CloseOutlined />}
+                onClick={() => {
+                  setTempFilters(undefined)
+                  onAdvancedFiltersChange?.(DEFAULT_ADVANCED_FILTERS)
+                  setAdvancedModalVisible(false)
+                }}
+              >
+                清空搜索
+              </Button>
+            </Space>
+            <Space>
+              <Button onClick={() => setAdvancedModalVisible(false)}>取消</Button>
+              <Button
+                type="primary"
+                onClick={() => {
+                  onAdvancedFiltersChange?.(tempFilters ?? DEFAULT_ADVANCED_FILTERS)
+                  setAdvancedModalVisible(false)
+                }}
+              >
+                应用
+              </Button>
+            </Space>
+          </div>
+        </div>
+      </Modal>
     </aside>
   )
 }

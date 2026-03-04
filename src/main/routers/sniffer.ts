@@ -101,7 +101,7 @@ const IMAGE_FFPROBE_FORMATS = new Set(['image2', 'png_pipe', 'jpeg_pipe', 'mjpeg
 
 // 跳过模式 — 明确无用的 URL
 const SKIP_PATTERNS = [
-  /\.(js|css|html|htm|json|xml|woff2?|ttf|eot|ico|txt|map|pdf)([\?#]|$)/i,
+  /\.(js|css|html|htm|json|xml|woff2?|ttf|eot|ico|txt|map|pdf)(?:\?|#|$)/i,
   /^data:/,
   /^blob:/,
   /^chrome-extension:/,
@@ -454,7 +454,7 @@ async function analyzeByFfprobe(url: string, state: SnifferState): Promise<Sniff
       confidence: 'speculative',
       source: 'ffprobe'
     }
-  } catch (e) {
+  } catch (_e) {
     // ffprobe 失败，放弃此 URL
     return null
   }
