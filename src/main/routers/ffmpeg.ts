@@ -5,7 +5,7 @@ import ffmpegStatic from 'ffmpeg-static'
 import md5File from 'md5-file'
 import { promises as fs } from 'fs'
 import path from 'path'
-import log from '../logger'
+import log from '../core/logger'
 
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
@@ -39,6 +39,11 @@ type AnalyzeResult = {
   cover?: string
 }
 
+export type AnalyzeInput = {
+  path: string
+  header?: Record<string, string>
+}
+
 const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'])
 
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
@@ -49,9 +54,27 @@ const parseDuration = (raw: unknown): number => {
   return Number.isFinite(num) ? num : 0
 }
 
-const ffprobe = (source: string): Promise<ProbeMetadata> =>
+const toFfmpegHeaders = (header?: Record<string, string>): string | null => {
+  if (!header) return null
+  const lines = Object.entries(header)
+    .filter(([, value]) => typeof value === 'string' && value.trim())
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\r\n')
+  return lines || null
+}
+
+const createInputCommand = (source: string, header?: Record<string, string>) => {
+  const command = ffmpeg().input(source)
+  const headerLines = toFfmpegHeaders(header)
+  if (headerLines) {
+    command.inputOptions(['-headers', headerLines])
+  }
+  return command
+}
+
+const ffprobe = (source: string, header?: Record<string, string>): Promise<ProbeMetadata> =>
   new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(source, (err, data) => {
+    createInputCommand(source, header).ffprobe((err, data) => {
       if (err) reject(err)
       else resolve(data as ProbeMetadata)
     })
@@ -84,12 +107,12 @@ const detectFileType = (filePath: string, metadata: ProbeMetadata): AnalyzeResul
   return 'other'
 }
 
-const getFirstFrameToBase64 = (source: string): Promise<string> =>
+const getFirstFrameToBase64 = (source: string, header?: Record<string, string>): Promise<string> =>
   new Promise((resolve, reject) => {
     let settled = false
     const buffers: Buffer[] = []
 
-    const command = ffmpeg(source)
+    const command = createInputCommand(source, header)
       .seekInput(0)
       .frames(1)
       .outputOptions(['-f image2', '-vcodec mjpeg', '-vf scale=320:-1'])
@@ -117,59 +140,63 @@ const getFirstFrameToBase64 = (source: string): Promise<string> =>
     })
   })
 
-export const ffmpegRouter = trpc.router({
-  analyze: publicProcedure.input(z.object({ path: z.string() })).query(async ({ input }) => {
-    const isUrl = isHttpUrl(input.path)
-    if (!isUrl) {
+export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> => {
+  const isUrl = isHttpUrl(input.path)
+  if (!isUrl) {
+    try {
+      await fs.access(input.path)
+    } catch {
+      throw new Error('文件不存在')
+    }
+  }
+
+  const metadata = await ffprobe(input.path, input.header)
+  const [stats, md5] = isUrl
+    ? [{ size: 0 }, undefined]
+    : await Promise.all([fs.stat(input.path), md5File(input.path)])
+
+  const videoStream = metadata.streams?.find((s) => s.codec_type === 'video')
+  const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
+  const fileType = detectFileType(input.path, metadata)
+
+  const result: AnalyzeResult = {
+    type: fileType,
+    size: stats.size,
+    width: videoStream?.width,
+    height: videoStream?.height,
+    duration: metadata.format?.duration ? Number(metadata.format.duration) : undefined,
+    format: metadata.format?.format_name,
+    videoCodec: videoStream?.codec_name,
+    audioCodec: audioStream?.codec_name,
+    md5
+  }
+
+  if (fileType === 'image') {
+    if (isUrl) {
+      result.cover = input.path
+    } else {
       try {
-        await fs.access(input.path)
-      } catch {
-        throw new Error('文件不存在')
-      }
-    }
-
-    const metadata = await ffprobe(input.path)
-    const [stats, md5] = isUrl
-      ? [{ size: 0 }, undefined]
-      : await Promise.all([fs.stat(input.path), md5File(input.path)])
-
-    const videoStream = metadata.streams?.find((s) => s.codec_type === 'video')
-    const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
-    const fileType = detectFileType(input.path, metadata)
-
-    const result: AnalyzeResult = {
-      type: fileType,
-      size: stats.size,
-      width: videoStream?.width,
-      height: videoStream?.height,
-      duration: metadata.format?.duration ? Number(metadata.format.duration) : undefined,
-      format: metadata.format?.format_name,
-      videoCodec: videoStream?.codec_name,
-      audioCodec: audioStream?.codec_name,
-      md5
-    }
-
-    if (fileType === 'image') {
-      if (isUrl) {
-        result.cover = input.path
-      } else {
-        try {
-          const base64 = await fs.readFile(input.path, { encoding: 'base64' })
-          result.cover = `data:image/${getMimeExt(input.path)};base64,${base64}`
-        } catch (err) {
-          log.error('Image read error:', err)
-        }
-      }
-    }
-
-    if (fileType === 'video') {
-      try {
-        result.cover = await getFirstFrameToBase64(input.path)
+        const base64 = await fs.readFile(input.path, { encoding: 'base64' })
+        result.cover = `data:image/${getMimeExt(input.path)};base64,${base64}`
       } catch (err) {
-        log.error('Failed to capture video cover:', err)
+        log.error('Image read error:', err)
       }
     }
+  }
 
-    return result
-  })
+  if (fileType === 'video') {
+    try {
+      result.cover = await getFirstFrameToBase64(input.path, input.header)
+    } catch (err) {
+      log.error('Failed to capture video cover:', err)
+    }
+  }
+
+  return result
+}
+
+export const ffmpegRouter = trpc.router({
+  analyze: publicProcedure
+    .input(z.object({ path: z.string(), header: z.record(z.string(), z.string()).optional() }))
+    .query(async ({ input }) => analyzeMedia(input))
 })

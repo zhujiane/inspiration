@@ -4,7 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { sql } from 'drizzle-orm'
 import { existsSync } from 'fs'
 import { db } from './index'
-import log from '../logger'
+import log from '../core/logger'
 
 const toIdempotentInsert = (statement: string): string =>
   statement.replace(/^INSERT\s+INTO\s+/i, 'INSERT OR IGNORE INTO ')

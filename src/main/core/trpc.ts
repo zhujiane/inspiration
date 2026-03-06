@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { appRouter } from './router'
+import { appRouter } from '../router'
 import log from './logger'
 
 interface TrpcRequestPayload {

@@ -1,37 +1,11 @@
-import { app, shell, BrowserWindow, screen, protocol, session, dialog } from 'electron'
+import { app, BrowserWindow, screen, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
-import { setupTRPC } from './trpc'
-import log, { initLogger } from './logger'
-
-// 在 app ready 之前注册需要拦截的自定义协议
-const BLOCKED_PROTOCOLS = ['bitbrowser', 'bytedance', 'snssdk1128', 'snssdk1233', 'snssdk']
-
-const isBlockedProtocolUrl = (url: string): boolean => BLOCKED_PROTOCOLS.some((scheme) => url.startsWith(`${scheme}:`))
-
-const isSafeExternalUrl = (url: string): boolean => {
-  try {
-    const protocol = new URL(url).protocol
-    return protocol === 'http:' || protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-const registerBlockedProtocolHandlers = (ses: Electron.Session, scope: string): void => {
-  for (const scheme of BLOCKED_PROTOCOLS) {
-    try {
-      ses.protocol.handle(scheme, (request) => {
-        log.info(`Blocked protocol request (${scope}): ${request.url}`)
-        return new Response('', { status: 200 })
-      })
-    } catch (e) {
-      log.warn(`Failed to register protocol handler for ${scheme} (${scope}):`, e)
-    }
-  }
-}
+import { setupTRPC } from './core/trpc'
+import log, { initLogger } from './core/logger'
+import { registerBlockedSchemes, setupWebContentPolicies } from './core/web-content-policies'
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
@@ -56,20 +30,6 @@ function createWindow(): BrowserWindow {
     mainWindow.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    const { url } = details
-    if (isBlockedProtocolUrl(url)) {
-      log.info(`Blocked external protocol in main window: ${url}`)
-      return { action: 'deny' }
-    }
-    if (!isSafeExternalUrl(url)) {
-      log.info(`Blocked unsafe external URL in main window: ${url}`)
-      return { action: 'deny' }
-    }
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -85,16 +45,8 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-protocol.registerSchemesAsPrivileged(
-  BLOCKED_PROTOCOLS.map((scheme) => ({
-    scheme,
-    privileges: { standard: false, secure: false, supportFetchAPI: false }
-  }))
-)
+registerBlockedSchemes()
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   initLogger()
   log.info('App starting...')
@@ -112,64 +64,22 @@ app.whenReady().then(async () => {
     return
   }
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // 在协议层拦截自定义协议，防止 iframe / webview 等触发系统弹窗
-  registerBlockedProtocolHandlers(session.defaultSession, 'default')
-
-  createWindow()
-  // Set up tRPC IPC handler
+  const mainWindow = createWindow()
+  setupWebContentPolicies(mainWindow)
   setupTRPC()
 
-  // 记录已注册过协议处理器的 session，避免重复注册
-  const registeredSessions = new WeakSet<Electron.Session>()
-  registeredSessions.add(session.defaultSession)
-
-  const registerProtocolHandlers = (ses: Electron.Session): void => {
-    if (registeredSessions.has(ses)) return
-    registeredSessions.add(ses)
-    registerBlockedProtocolHandlers(ses, 'webview-session')
-  }
-
-  // 拦截 webview 的新窗口打开事件，并为 webview session 注册协议拦截
-  app.on('web-contents-created', (_, contents) => {
-    // 为每个 webContents 的 session 注册协议处理器（覆盖 webview 独立 session）
-    registerProtocolHandlers(contents.session)
-
-    if (contents.getType() === 'webview') {
-      contents.setWindowOpenHandler(({ url }) => {
-        // 检查是否是被拦截的协议
-        if (isBlockedProtocolUrl(url)) {
-          log.info(`Blocked protocol in webview window.open: ${url}`)
-          return { action: 'deny' }
-        }
-        if (!isSafeExternalUrl(url)) {
-          log.info(`Blocked unsafe URL in webview window.open: ${url}`)
-          return { action: 'deny' }
-        }
-        contents.loadURL(url)
-        return { action: 'deny' }
-      })
-    }
-  })
-
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      const mainWindow = createWindow()
+      setupWebContentPolicies(mainWindow)
     }
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   log.info('App window-all-closed')
   if (process.platform !== 'darwin') {

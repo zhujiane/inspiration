@@ -17,10 +17,11 @@ import { z } from 'zod'
 import { session, BrowserWindow, ipcMain } from 'electron'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
-import log from '../logger'
+import log from '../core/logger'
 import https from 'https'
 import http from 'http'
 import { URL } from 'url'
+import { analyzeMedia } from './ffmpeg'
 
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
@@ -219,6 +220,30 @@ function broadcastStats(partition: string, state?: SnifferState): void {
 
 function broadcastResource(partition: string, resource: SnifferResource): void {
   broadcast('sniffer:resource', { partition, resource })
+}
+
+async function enrichThumbnail(resource: SnifferResource): Promise<SnifferResource> {
+  if (resource.type !== 'video' || resource.thumbnailUrl) return resource
+
+  try {
+    const meta = await analyzeMedia({
+      path: resource.url,
+      header: resource.requestHeaders
+    })
+    if (meta.cover) {
+      return { ...resource, thumbnailUrl: meta.cover }
+    }
+  } catch (error) {
+    log.debug(`[Sniffer] Failed to enrich thumbnail for ${resource.url}: ${String(error)}`)
+  }
+
+  return resource
+}
+
+function emitResource(partition: string, resource: SnifferResource): void {
+  void enrichThumbnail(resource).then((nextResource) => {
+    broadcastResource(partition, nextResource)
+  })
 }
 
 // 规范化 URL（去掉 fragment，保留 query）
@@ -514,7 +539,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
       source: 'response-header'
     }
 
-    broadcastResource(partition, resource)
+    emitResource(partition, resource)
     broadcastStats(partition, state)
     log.debug(`[Sniffer] Confirmed via response-header: ${mediaType} ${url}`)
     return
@@ -620,7 +645,7 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
         confidence: 'confirmed',
         source: 'dom'
       }
-      broadcastResource(partition, resource)
+      emitResource(partition, resource)
       broadcastStats(partition, state)
     } else if (isAmbiguousContentType(head.contentType) && mightBeMediaByUrl(url)) {
       // 模糊类型 → ffprobe
@@ -663,7 +688,7 @@ function drainQueue(partition: string, state: SnifferState): void {
         }
         if (snifferStates.get(partition) === state && state.active) {
           state.identifiedCount++
-          broadcastResource(partition, resource)
+          emitResource(partition, resource)
         }
       })
       .finally(() => {

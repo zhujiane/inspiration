@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space } from 'antd'
 import {
   CheckSquareOutlined,
@@ -26,10 +26,18 @@ export interface AdvancedSearchFilters {
 
 export const DEFAULT_ADVANCED_FILTERS: AdvancedSearchFilters = {
   type: 'all',
-  minWidth: 204,
-  minHeight: 240,
+  minWidth: 120,
+  minHeight: 120,
   minSize: 100, // 100KB
   minDuration: 5 // 5s
+}
+
+export const EMPTY_ADVANCED_FILTERS: AdvancedSearchFilters = {
+  type: 'all',
+  minWidth: 0,
+  minHeight: 0,
+  minSize: 0,
+  minDuration: 0
 }
 
 export interface SnifferStats {
@@ -74,7 +82,6 @@ export default function SnifferPanel({
   onClearAll,
   onMerge,
   onBatchAction,
-  onAdvancedSearch,
   onAdvancedFiltersChange,
   onResourceSelect,
   onResourceDelete,
@@ -86,7 +93,7 @@ export default function SnifferPanel({
   const [tempFilters, setTempFilters] = useState<AdvancedSearchFilters | undefined>(advancedFilters)
 
   // Sync temp filters when props change
-  useMemo(() => {
+  useEffect(() => {
     if (!advancedModalVisible) {
       setTempFilters(advancedFilters)
     }
@@ -356,8 +363,8 @@ export default function SnifferPanel({
               <Button
                 icon={<CloseOutlined />}
                 onClick={() => {
-                  setTempFilters(undefined)
-                  onAdvancedFiltersChange?.(DEFAULT_ADVANCED_FILTERS)
+                  setTempFilters(EMPTY_ADVANCED_FILTERS)
+                  onAdvancedFiltersChange?.(EMPTY_ADVANCED_FILTERS)
                   setAdvancedModalVisible(false)
                 }}
               >

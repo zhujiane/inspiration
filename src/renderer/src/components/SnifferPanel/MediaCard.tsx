@@ -1,6 +1,4 @@
-import { useState, useEffect } from 'react'
 import { Tooltip } from 'antd'
-import { trpc } from '../../lib/trpc'
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -53,24 +51,8 @@ export default function MediaCard({
   onDownload,
   onCopyUrl
 }: MediaCardProps): React.JSX.Element {
-  const [cover, setCover] = useState<string | undefined>(
+  const cover =
     resource.type === 'image' ? resource.thumbnailUrl || resource.url : resource.thumbnailUrl
-  )
-
-  useEffect(() => {
-    if (!cover && resource.type === 'video' && resource.url) {
-      trpc.ffmpeg.analyze
-        .query({ path: resource.url })
-        .then((meta: any) => {
-          if (meta && meta.cover) {
-            setCover(meta.cover)
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to analyze resource URL:', err)
-        })
-    }
-  }, [resource.url, resource.type, cover])
 
   return (
     <>
