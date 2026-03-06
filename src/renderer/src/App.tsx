@@ -93,9 +93,19 @@ function App(): React.JSX.Element {
       const { resource } = data
       if (!resource) return
       setResources((prev) => {
-        // Deduplicate by URL
-        if (prev.some((r) => r.url === resource.url)) return prev
-        return [resource, ...prev]
+        const existingIndex = prev.findIndex((r) => r.url === resource.url)
+        if (existingIndex === -1) return [resource, ...prev]
+
+        const existing = prev[existingIndex]
+        const merged = {
+          ...existing,
+          ...resource,
+          id: existing.id,
+          selected: existing.selected
+        }
+        const next = [...prev]
+        next[existingIndex] = merged
+        return next
       })
       // Auto-expand panel when a resource is found
       setSnifferCollapsed(false)
@@ -395,66 +405,6 @@ function App(): React.JSX.Element {
     }
   }
 
-  // --- Sniffer Resource Handlers ---
-  const handleResourceSelect = useCallback((id: string, selected: boolean) => {
-    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, selected } : r)))
-  }, [])
-
-  const handleSelectAll = useCallback(() => {
-    setResources((prev) => prev.map((r) => ({ ...r, selected: true })))
-  }, [])
-
-  const handleClearAll = useCallback(() => {
-    setResources([])
-    const partition = getActivePartition()
-    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
-    setSnifferStats({
-      active: snifferActive,
-      sniffedCount: 0,
-      identifiedCount: 0,
-      discardedCount: 0,
-      analyzingCount: 0
-    })
-  }, [getActivePartition, snifferActive])
-
-  const handleResourceDelete = useCallback((id: string) => {
-    setResources((prev) => prev.filter((r) => r.id !== id))
-  }, [])
-
-  const handleResourcePreview = useCallback(
-    (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-      setPreviewResource(res)
-      setPreviewVisible(true)
-    },
-    [resources]
-  )
-
-  const handleResourceDownload = useCallback(
-    (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-      // Trigger file download via browser
-      const a = document.createElement('a')
-      a.href = res.url
-      a.download = res.title || 'media'
-      a.target = '_blank'
-      a.click()
-      message.success('已开始下载，资源将添加至素材库')
-    },
-    [resources]
-  )
-
-  const handleResourceCopyUrl = useCallback(
-    (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-      navigator.clipboard.writeText(res.url).then(() => message.success('链接已复制'))
-    },
-    [resources]
-  )
-
   // Helper: parse size string to KB
   const parseSizeToKB = (sizeStr?: string): number => {
     if (!sizeStr) return 0
@@ -533,6 +483,91 @@ function App(): React.JSX.Element {
 
     return result
   }, [resources, snifferSearch, advancedFilters])
+
+  // --- Sniffer Resource Handlers ---
+  const handleResourceSelect = useCallback((id: string, selected: boolean) => {
+    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, selected } : r)))
+  }, [])
+
+  const handleSelectAll = useCallback(() => {
+    const visibleIds = new Set(filteredResources.map((r) => r.id))
+    setResources((prev) => prev.map((r) => (visibleIds.has(r.id) ? { ...r, selected: true } : r)))
+  }, [filteredResources])
+
+  const handleInvertSelect = useCallback(() => {
+    const visibleIds = new Set(filteredResources.map((r) => r.id))
+    setResources((prev) => prev.map((r) => (visibleIds.has(r.id) ? { ...r, selected: !r.selected } : r)))
+  }, [filteredResources])
+
+  const handleClearAll = useCallback(() => {
+    setResources([])
+    const partition = getActivePartition()
+    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
+    setSnifferStats({
+      active: snifferActive,
+      sniffedCount: 0,
+      identifiedCount: 0,
+      discardedCount: 0,
+      analyzingCount: 0
+    })
+  }, [getActivePartition, snifferActive])
+
+  const handleResourceDelete = useCallback((id: string) => {
+    setResources((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
+  const handleResourcePreview = useCallback(
+    (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      setPreviewResource(res)
+      setPreviewVisible(true)
+    },
+    [resources]
+  )
+
+  const handleResourceDownload = useCallback(
+    async (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      try {
+        await trpc.sniffer.download.mutate({ resource: res as any })
+        message.success('下载完成，已添加到素材库')
+      } catch (error) {
+        console.error('Sniffer download failed:', error)
+        message.error('下载失败')
+      }
+    },
+    [resources]
+  )
+
+  const handleMerge = useCallback(async () => {
+    const selectedResources = resources.filter((r) => r.selected && (r.type === 'video' || r.type === 'audio'))
+    if (selectedResources.length < 2) {
+      message.warning('请至少选择一个视频和一个音频')
+      return
+    }
+
+    try {
+      const result = (await trpc.sniffer.mergeSelected.mutate({ resources: selectedResources as any })) as {
+        mergedCount: number
+      }
+      message.success(`合并完成，已生成 ${result.mergedCount} 个素材`)
+      setResources((prev) => prev.map((item) => (item.selected ? { ...item, selected: false } : item)))
+    } catch (error) {
+      console.error('Sniffer merge failed:', error)
+      message.error((error as Error)?.message || '合并失败')
+    }
+  }, [resources])
+
+  const handleResourceCopyUrl = useCallback(
+    (id: string) => {
+      const res = resources.find((r) => r.id === id)
+      if (!res) return
+      navigator.clipboard.writeText(res.url).then(() => message.success('链接已复制'))
+    },
+    [resources]
+  )
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
@@ -634,9 +669,9 @@ function App(): React.JSX.Element {
                 onToggle={() => setSnifferCollapsed((p) => !p)}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
+                onInvertSelect={handleInvertSelect}
                 onClearAll={handleClearAll}
-                onMerge={() => console.log('Merge')}
-                onBatchAction={() => console.log('Batch')}
+                onMerge={handleMerge}
                 onAdvancedFiltersChange={setAdvancedFilters}
                 onResourceSelect={handleResourceSelect}
                 onResourceDelete={handleResourceDelete}

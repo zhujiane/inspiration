@@ -14,7 +14,7 @@
 
 import { publicProcedure, trpc } from '@shared/routers/trpc'
 import { z } from 'zod'
-import { session, BrowserWindow, ipcMain } from 'electron'
+import { session, BrowserWindow, ipcMain, app } from 'electron'
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
 import log from '../core/logger'
@@ -22,6 +22,13 @@ import https from 'https'
 import http from 'http'
 import { URL } from 'url'
 import { analyzeMedia } from './ffmpeg'
+import { createReadStream, createWriteStream, promises as fs } from 'fs'
+import path from 'path'
+import { pipeline } from 'stream/promises'
+import { db } from '@main/db'
+import { configs } from '@shared/db/config-schema'
+import { resources } from '@shared/db/resource-schema'
+import { eq } from 'drizzle-orm'
 
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic)
@@ -123,6 +130,7 @@ export interface SnifferResource {
   type: 'video' | 'audio' | 'image'
   url: string
   title: string
+  capturedAt: number
   pageUrl?: string // 来源页面（用作 Referer）
   contentType?: string
   size?: string
@@ -222,26 +230,31 @@ function broadcastResource(partition: string, resource: SnifferResource): void {
   broadcast('sniffer:resource', { partition, resource })
 }
 
-async function enrichThumbnail(resource: SnifferResource): Promise<SnifferResource> {
-  if (resource.type !== 'video' || resource.thumbnailUrl) return resource
+async function enrichResourceMetadata(resource: SnifferResource): Promise<SnifferResource> {
+  if (resource.type === 'image') return resource
+  if (resource.duration && (resource.type === 'audio' || resource.resolution || resource.thumbnailUrl)) return resource
 
   try {
     const meta = await analyzeMedia({
       path: resource.url,
       header: resource.requestHeaders
     })
-    if (meta.cover) {
-      return { ...resource, thumbnailUrl: meta.cover }
+    return {
+      ...resource,
+      resolution:
+        resource.resolution || (meta.width && meta.height ? `${meta.width}×${meta.height}` : undefined),
+      duration: resource.duration || (meta.duration ? formatDuration(meta.duration) : undefined),
+      thumbnailUrl: resource.thumbnailUrl || meta.cover
     }
   } catch (error) {
-    log.debug(`[Sniffer] Failed to enrich thumbnail for ${resource.url}: ${String(error)}`)
+    log.debug(`[Sniffer] Failed to enrich metadata for ${resource.url}: ${String(error)}`)
   }
 
   return resource
 }
 
 function emitResource(partition: string, resource: SnifferResource): void {
-  void enrichThumbnail(resource).then((nextResource) => {
+  void enrichResourceMetadata(resource).then((nextResource) => {
     broadcastResource(partition, nextResource)
   })
 }
@@ -295,6 +308,108 @@ function formatSize(bytes: number): string {
   if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   if (bytes > 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${bytes} B`
+}
+
+function parseDurationText(raw?: string): number {
+  if (!raw) return 0
+  const parts = raw.split(':').map((part) => Number(part))
+  if (parts.some((part) => !Number.isFinite(part))) return 0
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  return 0
+}
+
+function guessExtensionFromContentType(contentType?: string): string {
+  const ct = contentType?.toLowerCase().split(';')[0].trim()
+  const map: Record<string, string> = {
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+    'audio/mpeg': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/aac': '.aac',
+    'audio/ogg': '.ogg',
+    'audio/wav': '.wav',
+    'audio/webm': '.webm',
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif'
+  }
+  return ct ? map[ct] || '' : ''
+}
+
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim() || 'media'
+  )
+}
+
+function extFromUrl(targetUrl: string): string {
+  try {
+    const parsed = new URL(targetUrl)
+    return path.extname(parsed.pathname)
+  } catch {
+    return ''
+  }
+}
+
+function filenameFromContentDisposition(contentDisposition?: string): string | null {
+  if (!contentDisposition) return null
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1])
+  const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
+  return asciiMatch?.[1] ?? null
+}
+
+async function getConfigValue(key: string): Promise<string> {
+  const [config] = await db.select().from(configs).where(eq(configs.key, key)).limit(1)
+  return config?.value?.trim() ?? ''
+}
+
+async function ensureDownloadDir(): Promise<string> {
+  const configuredPath = await getConfigValue('download.path')
+  const downloadDir = configuredPath || path.join(app.getPath('downloads'), 'download')
+  await fs.mkdir(downloadDir, { recursive: true })
+  return downloadDir
+}
+
+async function ensureUniqueFilePath(targetPath: string): Promise<string> {
+  const parsed = path.parse(targetPath)
+  let nextPath = targetPath
+  let counter = 1
+
+  while (true) {
+    try {
+      await fs.access(nextPath)
+      nextPath = path.join(parsed.dir, `${parsed.name}(${counter++})${parsed.ext}`)
+    } catch {
+      return nextPath
+    }
+  }
+}
+
+function inferPlatform(pageUrl?: string, resourceUrl?: string): string {
+  const source = pageUrl || resourceUrl
+  if (!source) return '网络'
+  try {
+    const hostname = new URL(source).hostname.toLowerCase()
+    if (hostname.includes('douyin')) return '抖音'
+    if (hostname.includes('bilibili') || hostname.includes('bilivideo')) return 'B站'
+    return hostname.replace(/^www\./, '')
+  } catch {
+    return '网络'
+  }
+}
+
+function mapResourceType(type: SnifferResource['type']): string {
+  if (type === 'video') return '视频'
+  if (type === 'audio') return '音频'
+  if (type === 'image') return '图片'
+  return '其他'
 }
 
 function rememberSeenUrl(state: SnifferState, url: string): void {
@@ -373,34 +488,99 @@ interface HeadResult {
   contentLength: number
   acceptRanges: boolean
   etag?: string
+  finalUrl?: string
+  contentDisposition?: string
 }
 
 function headRequest(url: string, extraHeaders?: Record<string, string>): Promise<HeadResult> {
   return new Promise((resolve) => {
     try {
-      const u = new URL(url)
-      const mod = u.protocol === 'https:' ? https : http
       const reqHeaders: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
         ...extraHeaders
       }
-      const req = mod.request(url, { method: 'HEAD', timeout: 6_000, headers: reqHeaders }, (res) => {
-        resolve({
-          contentType: (res.headers['content-type'] as string) || '',
-          contentLength: parseInt(res.headers['content-length'] || '0', 10) || 0,
-          acceptRanges: res.headers['accept-ranges'] === 'bytes',
-          etag: res.headers['etag'] as string | undefined
+
+      void requestWithRedirect(url, { method: 'HEAD', headers: reqHeaders, timeout: 6_000 })
+        .then(({ response, finalUrl }) => {
+          response.resume()
+          resolve({
+            contentType: (response.headers['content-type'] as string) || '',
+            contentLength: parseInt(response.headers['content-length'] || '0', 10) || 0,
+            acceptRanges: response.headers['accept-ranges'] === 'bytes',
+            etag: response.headers['etag'] as string | undefined,
+            finalUrl,
+            contentDisposition: response.headers['content-disposition'] as string | undefined
+          })
         })
-      })
-      req.on('error', () => resolve({ contentType: '', contentLength: 0, acceptRanges: false }))
-      req.on('timeout', () => {
-        req.destroy()
-        resolve({ contentType: '', contentLength: 0, acceptRanges: false })
-      })
-      req.end()
+        .catch(() => resolve({ contentType: '', contentLength: 0, acceptRanges: false }))
     } catch {
       resolve({ contentType: '', contentLength: 0, acceptRanges: false })
     }
+  })
+}
+
+type RequestMethod = 'GET' | 'HEAD'
+
+interface RedirectRequestOptions {
+  method?: RequestMethod
+  headers?: Record<string, string>
+  timeout?: number
+}
+
+function requestWithRedirect(
+  targetUrl: string,
+  options: RedirectRequestOptions,
+  redirectCount = 0
+): Promise<{ response: http.IncomingMessage; finalUrl: string }> {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      reject(new Error('Too many redirects'))
+      return
+    }
+
+    let nextUrl: URL
+    try {
+      nextUrl = new URL(targetUrl)
+    } catch (error) {
+      reject(error)
+      return
+    }
+
+    const mod = nextUrl.protocol === 'https:' ? https : http
+    const req = mod.request(
+      nextUrl,
+      {
+        method: options.method ?? 'GET',
+        headers: options.headers,
+        timeout: options.timeout ?? 15_000
+      },
+      (response) => {
+        const statusCode = response.statusCode ?? 0
+        const location = response.headers.location
+        if ([301, 302, 303, 307, 308].includes(statusCode) && location) {
+          response.resume()
+          const redirectedUrl = new URL(location, nextUrl).toString()
+          void requestWithRedirect(redirectedUrl, options, redirectCount + 1)
+            .then(resolve)
+            .catch(reject)
+          return
+        }
+
+        if (statusCode >= 400) {
+          response.resume()
+          reject(new Error(`HTTP ${statusCode}`))
+          return
+        }
+
+        resolve({ response, finalUrl: nextUrl.toString() })
+      }
+    )
+
+    req.on('error', reject)
+    req.on('timeout', () => {
+      req.destroy(new Error('Request timeout'))
+    })
+    req.end()
   })
 }
 
@@ -470,6 +650,7 @@ async function analyzeByFfprobe(url: string, state: SnifferState): Promise<Sniff
       type,
       url,
       title: titleFromUrl(url),
+      capturedAt: Date.now(),
       pageUrl: meta?.pageUrl,
       contentType: meta?.contentType,
       size: bytes ? formatSize(bytes) : undefined,
@@ -532,6 +713,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
       type: mediaType,
       url,
       title: titleFromUrl(url),
+      capturedAt: Date.now(),
       contentType: ct,
       size: contentLength ? formatSize(contentLength) : undefined,
       requestHeaders: sanitizeHeaders(flatReqHeaders),
@@ -639,6 +821,7 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
         type: mediaType,
         url,
         title: titleFromUrl(url),
+        capturedAt: Date.now(),
         contentType: head.contentType,
         size: head.contentLength ? formatSize(head.contentLength) : undefined,
         requestHeaders: sanitizeHeaders(meta?.requestHeaders),
@@ -831,6 +1014,233 @@ ipcMain.handle('sniffer:scan-urls', async (_event, { partition, urls }: { partit
 })
 
 // ─────────────────────────────────────────────
+//  下载 / 合并
+// ─────────────────────────────────────────────
+
+const snifferDownloadResourceSchema = z.object({
+  id: z.string(),
+  type: z.enum(['video', 'audio', 'image']),
+  url: z.string().url(),
+  title: z.string(),
+  capturedAt: z.number().optional(),
+  pageUrl: z.string().optional(),
+  contentType: z.string().optional(),
+  duration: z.string().optional(),
+  requestHeaders: z.record(z.string(), z.string()).optional()
+})
+
+type SnifferDownloadResourceInput = z.infer<typeof snifferDownloadResourceSchema>
+
+async function safeUnlink(targetPath: string): Promise<void> {
+  try {
+    await fs.unlink(targetPath)
+  } catch {}
+}
+
+async function safeRm(targetPath: string): Promise<void> {
+  try {
+    await fs.rm(targetPath, { recursive: true, force: true })
+  } catch {}
+}
+
+async function singleStreamDownload(url: string, headers: Record<string, string>, targetPath: string): Promise<void> {
+  const tempPath = `${targetPath}.part`
+  await safeUnlink(tempPath)
+  try {
+    const { response } = await requestWithRedirect(url, { method: 'GET', headers, timeout: 30_000 })
+    await pipeline(response, createWriteStream(tempPath))
+    await fs.rename(tempPath, targetPath)
+  } catch (error) {
+    await safeUnlink(tempPath)
+    throw error
+  }
+}
+
+async function concatenateFiles(partPaths: string[], outputPath: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const output = createWriteStream(outputPath)
+    let index = 0
+
+    const pipeNext = () => {
+      if (index >= partPaths.length) {
+        output.end(() => resolve())
+        return
+      }
+
+      const input = createReadStream(partPaths[index++])
+      input.on('error', reject)
+      input.on('end', pipeNext)
+      input.pipe(output, { end: false })
+    }
+
+    output.on('error', reject)
+    pipeNext()
+  })
+}
+
+async function chunkedDownload(
+  url: string,
+  headers: Record<string, string>,
+  targetPath: string,
+  contentLength: number,
+  chunkCount: number
+): Promise<void> {
+  const tempDir = `${targetPath}.chunks`
+  const partPaths: string[] = []
+  await safeRm(tempDir)
+  await fs.mkdir(tempDir, { recursive: true })
+
+  try {
+    const chunkSize = Math.ceil(contentLength / chunkCount)
+    await Promise.all(
+      Array.from({ length: chunkCount }, async (_, index) => {
+        const start = index * chunkSize
+        const end = Math.min(contentLength - 1, start + chunkSize - 1)
+        const partPath = path.join(tempDir, `part-${index}.tmp`)
+        partPaths[index] = partPath
+        const { response } = await requestWithRedirect(url, {
+          method: 'GET',
+          headers: {
+            ...headers,
+            Range: `bytes=${start}-${end}`
+          },
+          timeout: 30_000
+        })
+        await pipeline(response, createWriteStream(partPath))
+      })
+    )
+
+    const tempTargetPath = `${targetPath}.part`
+    await safeUnlink(tempTargetPath)
+    await concatenateFiles(partPaths, tempTargetPath)
+    await fs.rename(tempTargetPath, targetPath)
+  } catch (error) {
+    await safeUnlink(`${targetPath}.part`)
+    throw error
+  } finally {
+    await safeRm(tempDir)
+  }
+}
+
+async function resolveDownloadTarget(
+  resource: SnifferDownloadResourceInput,
+  suffix = ''
+): Promise<{ downloadDir: string; filePath: string; fileName: string; finalUrl: string }> {
+  const downloadDir = await ensureDownloadDir()
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    ...(resource.requestHeaders ?? {})
+  }
+  const head = await headRequest(resource.url, headers)
+  const fileNameBase =
+    filenameFromContentDisposition(head.contentDisposition) ||
+    `${sanitizeFilename(resource.title || titleFromUrl(resource.url))}${suffix}`
+  const ext =
+    path.extname(fileNameBase) ||
+    extFromUrl(head.finalUrl || resource.url) ||
+    extFromUrl(resource.url) ||
+    guessExtensionFromContentType(resource.contentType || head.contentType) ||
+    (resource.type === 'video' ? '.mp4' : resource.type === 'audio' ? '.m4a' : '.jpg')
+  const normalizedBase = path.basename(fileNameBase, path.extname(fileNameBase))
+  const fileName = `${sanitizeFilename(normalizedBase)}${ext}`
+  const filePath = await ensureUniqueFilePath(path.join(downloadDir, fileName))
+  return {
+    downloadDir,
+    fileName: path.basename(filePath),
+    filePath,
+    finalUrl: head.finalUrl || resource.url
+  }
+}
+
+async function downloadRemoteResource(
+  resource: SnifferDownloadResourceInput,
+  suffix = ''
+): Promise<{ filePath: string; fileName: string; finalUrl: string }> {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    ...(resource.requestHeaders ?? {})
+  }
+  const { filePath, fileName, finalUrl } = await resolveDownloadTarget(resource, suffix)
+  const head = await headRequest(resource.url, headers)
+
+  if (head.acceptRanges && head.contentLength > 8 * 1024 * 1024) {
+    const chunkCount = Math.min(4, Math.max(2, Math.ceil(head.contentLength / (16 * 1024 * 1024))))
+    await chunkedDownload(finalUrl, headers, filePath, head.contentLength, chunkCount)
+  } else {
+    await singleStreamDownload(finalUrl, headers, filePath)
+  }
+
+  return { filePath, fileName, finalUrl }
+}
+
+async function addDownloadedResourceToLibrary(
+  resource: SnifferDownloadResourceInput,
+  localPath: string,
+  sourceUrl: string
+): Promise<any> {
+  const meta = await analyzeMedia({ path: localPath })
+  const created = await db
+    .insert(resources)
+    .values({
+      name: path.basename(localPath),
+      type: mapResourceType(resource.type),
+      url: sourceUrl,
+      localPath,
+      cover: meta.cover,
+      platform: inferPlatform(resource.pageUrl, sourceUrl),
+      metadata: JSON.stringify(meta),
+      description: `嗅探下载: ${resource.pageUrl || sourceUrl}`
+    })
+    .returning()
+  return created[0]
+}
+
+async function mergeAudioVideo(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg()
+      .input(videoPath)
+      .input(audioPath)
+      .outputOptions(['-map 0:v:0', '-map 1:a:0', '-c:v copy', '-c:a aac', '-shortest'])
+      .save(outputPath)
+      .on('end', () => resolve())
+      .on('error', (error) => reject(error))
+  })
+}
+
+function pairSelectedResources(items: SnifferDownloadResourceInput[]): Array<{
+  video: SnifferDownloadResourceInput
+  audio: SnifferDownloadResourceInput
+}> {
+  const videos = items.filter((item) => item.type === 'video')
+  const audios = items.filter((item) => item.type === 'audio')
+  const usedAudioIds = new Set<string>()
+  const pairs: Array<{ video: SnifferDownloadResourceInput; audio: SnifferDownloadResourceInput }> = []
+
+  for (const video of videos) {
+    const videoDuration = parseDurationText(video.duration)
+    const videoCapturedAt = video.capturedAt ?? 0
+    const candidates = audios
+      .filter((audio) => !usedAudioIds.has(audio.id))
+      .map((audio) => {
+        const audioDuration = parseDurationText(audio.duration)
+        return {
+          audio,
+          durationDiff: Math.abs(videoDuration - audioDuration),
+          tsDiff: Math.abs(videoCapturedAt - (audio.capturedAt ?? 0))
+        }
+      })
+      .filter((item) => item.durationDiff <= 1)
+      .sort((a, b) => a.durationDiff - b.durationDiff || a.tsDiff - b.tsDiff)
+
+    const matched = candidates[0]
+    if (!matched) continue
+    usedAudioIds.add(matched.audio.id)
+    pairs.push({ video, audio: matched.audio })
+  }
+
+  return pairs
+}
+
 //  tRPC 路由
 // ─────────────────────────────────────────────
 
@@ -852,5 +1262,59 @@ export const snifferRouter = trpc.router({
 
   getStats: publicProcedure.input(z.object({ partition: z.string() })).query(({ input }) => {
     return statsOf(snifferStates.get(input.partition), input.partition)
-  })
+  }),
+
+  download: publicProcedure.input(z.object({ resource: snifferDownloadResourceSchema })).mutation(async ({ input }) => {
+    const { filePath, finalUrl } = await downloadRemoteResource(input.resource)
+    const libraryItem = await addDownloadedResourceToLibrary(input.resource, filePath, finalUrl)
+    return { success: true, filePath, libraryItem }
+  }),
+
+  mergeSelected: publicProcedure
+    .input(z.object({ resources: z.array(snifferDownloadResourceSchema).min(2) }))
+    .mutation(async ({ input }) => {
+      const pairs = pairSelectedResources(input.resources)
+      if (pairs.length === 0) {
+        throw new Error('未找到可合并的音视频配对，请检查选中项的时长是否接近')
+      }
+
+      const downloadDir = await ensureDownloadDir()
+      const mergedResults: Array<{ filePath: string; libraryItem: any }> = []
+
+      for (const [index, pair] of pairs.entries()) {
+        const tempFiles: string[] = []
+        try {
+          const [videoDownloaded, audioDownloaded] = await Promise.all([
+            downloadRemoteResource(pair.video, `-video-${index + 1}`),
+            downloadRemoteResource(pair.audio, `-audio-${index + 1}`)
+          ])
+          tempFiles.push(videoDownloaded.filePath, audioDownloaded.filePath)
+
+          const outputName = `${sanitizeFilename(path.basename(pair.video.title, path.extname(pair.video.title)) || `merged-${index + 1}`)}-merged.mp4`
+          const outputPath = await ensureUniqueFilePath(path.join(downloadDir, outputName))
+          await mergeAudioVideo(videoDownloaded.filePath, audioDownloaded.filePath, outputPath)
+
+          const meta = await analyzeMedia({ path: outputPath })
+          const [libraryItem] = await db
+            .insert(resources)
+            .values({
+              name: path.basename(outputPath),
+              type: '视频',
+              url: pair.video.url,
+              localPath: outputPath,
+              cover: meta.cover,
+              platform: inferPlatform(pair.video.pageUrl, pair.video.url),
+              metadata: JSON.stringify(meta),
+              description: `嗅探合并: ${pair.video.url}`
+            })
+            .returning()
+
+          mergedResults.push({ filePath: outputPath, libraryItem })
+        } finally {
+          await Promise.all(tempFiles.map((tempPath) => safeUnlink(tempPath)))
+        }
+      }
+
+      return { success: true, mergedCount: mergedResults.length, items: mergedResults }
+    })
 })

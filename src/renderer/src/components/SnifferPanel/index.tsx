@@ -4,14 +4,14 @@ import {
   CheckSquareOutlined,
   ClearOutlined,
   MergeCellsOutlined,
-  ThunderboltOutlined,
   LeftOutlined,
   RightOutlined,
   FilterOutlined,
   RadarChartOutlined,
   LoadingOutlined,
   UndoOutlined,
-  CloseOutlined
+  CloseOutlined,
+  SwapOutlined
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
@@ -58,9 +58,9 @@ interface SnifferPanelProps {
   onToggle: () => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
+  onInvertSelect?: () => void
   onClearAll?: () => void
   onMerge?: () => void
-  onBatchAction?: () => void
   onAdvancedSearch?: () => void
   onAdvancedFiltersChange?: (filters: AdvancedSearchFilters) => void
   onResourceSelect?: (id: string, selected: boolean) => void
@@ -78,10 +78,9 @@ export default function SnifferPanel({
   advancedFilters,
   onToggle,
   onSearchChange,
-  onSelectAll,
+  onInvertSelect,
   onClearAll,
   onMerge,
-  onBatchAction,
   onAdvancedFiltersChange,
   onResourceSelect,
   onResourceDelete,
@@ -179,7 +178,7 @@ export default function SnifferPanel({
           <div className="sniffer-panel__toolbar">
             <div className="sniffer-panel__toolbar-group">
               <Tooltip title="全选" mouseEnterDelay={0.5}>
-                <button className="sniffer-panel__toolbar-btn" onClick={onSelectAll} aria-label="全选">
+                <button className="sniffer-panel__toolbar-btn" onClick={onInvertSelect} aria-label="反选">
                   <CheckSquareOutlined />
                 </button>
               </Tooltip>
@@ -195,11 +194,6 @@ export default function SnifferPanel({
               <Tooltip title="合并" mouseEnterDelay={0.5}>
                 <button className="sniffer-panel__toolbar-btn" onClick={onMerge} aria-label="合并">
                   <MergeCellsOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="批量操作" mouseEnterDelay={0.5}>
-                <button className="sniffer-panel__toolbar-btn" onClick={onBatchAction} aria-label="批量操作">
-                  <ThunderboltOutlined />
                   {selectedCount > 0 && (
                     <span
                       style={{

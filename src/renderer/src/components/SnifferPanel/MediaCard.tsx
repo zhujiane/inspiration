@@ -15,10 +15,14 @@ export interface MediaResource {
   type: 'image' | 'video' | 'audio'
   thumbnailUrl?: string
   title: string
+  capturedAt?: number
   size?: string
   resolution?: string
   duration?: string
   url: string
+  pageUrl?: string
+  contentType?: string
+  requestHeaders?: Record<string, string>
   selected?: boolean
 }
 
@@ -51,8 +55,7 @@ export default function MediaCard({
   onDownload,
   onCopyUrl
 }: MediaCardProps): React.JSX.Element {
-  const cover =
-    resource.type === 'image' ? resource.thumbnailUrl || resource.url : resource.thumbnailUrl
+  const cover = resource.type === 'image' ? resource.thumbnailUrl || resource.url : resource.thumbnailUrl
 
   return (
     <>
