@@ -520,9 +520,12 @@ function parseContentRangeTotal(contentRange?: string): number {
 }
 
 function resolveContentLength(headers: Record<string, string>): number {
+  const contentRangeTotal = parseContentRangeTotal(headers['content-range'])
+  if (contentRangeTotal > 0) return contentRangeTotal
+
   const contentLength = Number.parseInt(headers['content-length'] || '0', 10)
   if (Number.isFinite(contentLength) && contentLength > 0) return contentLength
-  return parseContentRangeTotal(headers['content-range'])
+  return 0
 }
 
 function shouldProbeConfirmedMedia(url: string, contentType: string): boolean {

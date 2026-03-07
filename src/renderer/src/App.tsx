@@ -451,7 +451,11 @@ function App(): React.JSX.Element {
     if (advancedFilters) {
       result = result.filter((r) => {
         // Type filter
-        if (advancedFilters.type !== 'all' && r.type !== advancedFilters.type) {
+        if (
+          advancedFilters.type.length > 0 &&
+          !advancedFilters.type.includes('all') &&
+          !advancedFilters.type.includes(r.type)
+        ) {
           return false
         }
 
