@@ -730,6 +730,7 @@ function App(): React.JSX.Element {
           type={previewResource?.type}
           src={previewResource?.url}
           cover={previewResource?.thumbnailUrl}
+          requestHeaders={previewResource?.requestHeaders}
         />
       </AntdApp>
     </ConfigProvider>

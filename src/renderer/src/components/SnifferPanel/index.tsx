@@ -10,8 +10,7 @@ import {
   RadarChartOutlined,
   LoadingOutlined,
   UndoOutlined,
-  CloseOutlined,
-  SwapOutlined
+  CloseOutlined
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'

@@ -241,8 +241,7 @@ async function enrichResourceMetadata(resource: SnifferResource): Promise<Sniffe
     })
     return {
       ...resource,
-      resolution:
-        resource.resolution || (meta.width && meta.height ? `${meta.width}×${meta.height}` : undefined),
+      resolution: resource.resolution || (meta.width && meta.height ? `${meta.width}×${meta.height}` : undefined),
       duration: resource.duration || (meta.duration ? formatDuration(meta.duration) : undefined),
       thumbnailUrl: resource.thumbnailUrl || meta.cover
     }
@@ -268,6 +267,26 @@ function normalizeUrl(raw: string): string {
   } catch {
     return raw
   }
+}
+
+function getHeaderValue(headers: Record<string, string> | undefined, key: string): string | undefined {
+  if (!headers) return undefined
+  const matchedKey = Object.keys(headers).find((headerKey) => headerKey.toLowerCase() === key.toLowerCase())
+  return matchedKey ? headers[matchedKey] : undefined
+}
+
+function isRangeRequest(headers?: Record<string, string>): boolean {
+  return Boolean(getHeaderValue(headers, 'range'))
+}
+
+function stripRangeHeader(headers?: Record<string, string>): Record<string, string> | undefined {
+  if (!headers) return undefined
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === 'range') continue
+    result[key] = value
+  }
+  return Object.keys(result).length ? result : undefined
 }
 
 // 是否是需要跳过的 URL
@@ -471,11 +490,11 @@ function mightBeMediaByUrl(url: string): boolean {
 
 function mightBeMediaByRequestHeaders(url: string, headers: Record<string, string>): boolean {
   if (mightBeMediaByUrl(url)) return true
-  const accept = headers['Accept'] || headers['accept'] || ''
+  const accept = getHeaderValue(headers, 'accept') || ''
   if (/video|audio/.test(accept)) return true
   if (/image\//.test(accept) && !/text\/html/.test(accept)) return true
   // Range 请求常见于媒体分段下载
-  if (headers['Range'] || headers['range']) return true
+  if (isRangeRequest(headers)) return true
   return false
 }
 
@@ -492,6 +511,32 @@ interface HeadResult {
   contentDisposition?: string
 }
 
+function parseContentRangeTotal(contentRange?: string): number {
+  if (!contentRange) return 0
+  const match = contentRange.match(/bytes\s+\d+-\d+\/(\d+|\*)/i)
+  if (!match || match[1] === '*') return 0
+  const total = Number.parseInt(match[1], 10)
+  return Number.isFinite(total) ? total : 0
+}
+
+function resolveContentLength(headers: Record<string, string>): number {
+  const contentLength = Number.parseInt(headers['content-length'] || '0', 10)
+  if (Number.isFinite(contentLength) && contentLength > 0) return contentLength
+  return parseContentRangeTotal(headers['content-range'])
+}
+
+function shouldProbeConfirmedMedia(url: string, contentType: string): boolean {
+  const normalizedContentType = contentType.toLowerCase().split(';')[0].trim()
+  if (normalizedContentType !== 'video/mp4') return false
+
+  try {
+    const pathname = new URL(url).pathname.toLowerCase()
+    return /media-audio|audio-und|audio-only|\/audio\//.test(pathname) || pathname.includes('mp4a')
+  } catch {
+    return /media-audio|audio-und|audio-only|\/audio\//.test(url.toLowerCase()) || url.toLowerCase().includes('mp4a')
+  }
+}
+
 function headRequest(url: string, extraHeaders?: Record<string, string>): Promise<HeadResult> {
   return new Promise((resolve) => {
     try {
@@ -503,9 +548,10 @@ function headRequest(url: string, extraHeaders?: Record<string, string>): Promis
       void requestWithRedirect(url, { method: 'HEAD', headers: reqHeaders, timeout: 6_000 })
         .then(({ response, finalUrl }) => {
           response.resume()
+          const flatHeaders = flattenHeaders(response.headers as Record<string, string | string[]>)
           resolve({
-            contentType: (response.headers['content-type'] as string) || '',
-            contentLength: parseInt(response.headers['content-length'] || '0', 10) || 0,
+            contentType: flatHeaders['content-type'] || '',
+            contentLength: resolveContentLength(flatHeaders),
             acceptRanges: response.headers['accept-ranges'] === 'bytes',
             etag: response.headers['etag'] as string | undefined,
             finalUrl,
@@ -593,11 +639,12 @@ function probeUrl(url: string, requestHeaders?: Record<string, string>): Promise
     const t = setTimeout(() => reject(new Error('ffprobe timeout')), 15_000)
 
     const cmd = ffmpeg()
+    const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders)
 
     // 将收集到的请求头注入 ffmpeg input_options（解决 403 问题）
-    if (requestHeaders) {
-      const headerStr = Object.entries(requestHeaders)
-        .filter(([k]) => /^(cookie|referer|user-agent|authorization)$/i.test(k))
+    if (sanitizedRequestHeaders) {
+      const headerStr = Object.entries(sanitizedRequestHeaders)
+        .filter(([k]) => /^(cookie|referer|user-agent|authorization|origin|accept|accept-language)$/i.test(k))
         .map(([k, v]) => `${k}: ${v}`)
         .join('\r\n')
       if (headerStr) {
@@ -680,15 +727,19 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   // 拍平响应头（Electron 中 responseHeaders 每个值都是 string[]）
   const flatResHeaders = flattenHeaders(details.responseHeaders ?? {})
   const ct = flatResHeaders['content-type'] || ''
-  const clStr = flatResHeaders['content-length'] || '0'
-  const contentLength = parseInt(clStr, 10) || 0
+  const contentLength = resolveContentLength(flatResHeaders)
 
   // 收集原始请求头缓存（用于下载时解决 403）
   const flatReqHeaders = flattenHeaders((details as any).requestHeaders ?? {})
   const existingMeta = state.requestMetaCache.get(url)
+  const mergedRequestHeaders = {
+    ...(existingMeta?.requestHeaders ?? {}),
+    ...flatReqHeaders
+  }
   const meta: RequestMeta = {
-    requestHeaders: { ...existingMeta?.requestHeaders, ...flatReqHeaders },
-    referer: flatReqHeaders['referer'],
+    requestHeaders: mergedRequestHeaders,
+    referer: getHeaderValue(mergedRequestHeaders, 'referer'),
+    pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
     contentType: ct,
     contentLength: Math.max(contentLength, existingMeta?.contentLength ?? 0),
     ts: Date.now()
@@ -701,6 +752,15 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   const mediaType = mediaTypeFromContentType(ct)
 
   if (mediaType) {
+    if (shouldProbeConfirmedMedia(url, ct)) {
+      rememberSeenUrl(state, url)
+      state.sniffedCount++
+      enqueueForFfprobe(partition, state, url)
+      broadcastStats(partition, state)
+      log.debug(`[Sniffer] Escalated to ffprobe despite confirmed content-type: ${ct} ${url}`)
+      return
+    }
+
     // 图片过滤：Content-Length 太小可能是图标
     if (mediaType === 'image' && contentLength > 0 && contentLength < MIN_IMAGE_SIZE) return
 
@@ -716,7 +776,8 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
       capturedAt: Date.now(),
       contentType: ct,
       size: contentLength ? formatSize(contentLength) : undefined,
-      requestHeaders: sanitizeHeaders(flatReqHeaders),
+      pageUrl: meta.pageUrl,
+      requestHeaders: sanitizeHeaders(mergedRequestHeaders),
       confidence: 'confirmed',
       source: 'response-header'
     }
@@ -751,13 +812,18 @@ function handleBeforeSendHeaders(
 
   // 缓存请求头（onResponseStarted 会补全 content-type 和 length）
   const existingMeta = state.requestMetaCache.get(url)
-  if (!existingMeta) {
-    cacheRequestMeta(state, url, {
-      requestHeaders: details.requestHeaders,
-      referer: details.requestHeaders['Referer'] || details.requestHeaders['referer'],
-      ts: Date.now()
-    })
+  const mergedRequestHeaders = {
+    ...(existingMeta?.requestHeaders ?? {}),
+    ...details.requestHeaders
   }
+  cacheRequestMeta(state, url, {
+    requestHeaders: mergedRequestHeaders,
+    referer: getHeaderValue(mergedRequestHeaders, 'referer'),
+    pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
+    contentType: existingMeta?.contentType,
+    contentLength: existingMeta?.contentLength,
+    ts: Date.now()
+  })
 
   if (mightBeMediaByRequestHeaders(url, details.requestHeaders)) {
     // 先不计入 sniffedCount，等 onResponseStarted 确认
@@ -794,16 +860,23 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
 
   // 给 HEAD 请求带上已知的请求头（如 Referer/Cookie），减少 403
   const extraHeaders: Record<string, string> = {}
-  if (meta?.requestHeaders?.['Referer']) extraHeaders['Referer'] = meta.requestHeaders['Referer']
-  if (meta?.requestHeaders?.['referer']) extraHeaders['Referer'] = meta.requestHeaders['referer']
-  if (meta?.requestHeaders?.['Cookie']) extraHeaders['Cookie'] = meta.requestHeaders['Cookie']
-  if (meta?.requestHeaders?.['cookie']) extraHeaders['Cookie'] = meta.requestHeaders['cookie']
+  const referer = getHeaderValue(meta?.requestHeaders, 'referer')
+  const cookie = getHeaderValue(meta?.requestHeaders, 'cookie')
+  const origin = getHeaderValue(meta?.requestHeaders, 'origin')
+  if (referer) extraHeaders['Referer'] = referer
+  if (cookie) extraHeaders['Cookie'] = cookie
+  if (origin) extraHeaders['Origin'] = origin
 
   try {
     const head = await headRequest(url, extraHeaders)
     const mediaType = mediaTypeFromContentType(head.contentType)
 
     if (mediaType) {
+      if (shouldProbeConfirmedMedia(url, head.contentType)) {
+        enqueueForFfprobe(partition, state, url)
+        return
+      }
+
       if (mediaType === 'image' && head.contentLength > 0 && head.contentLength < MIN_IMAGE_SIZE) return
 
       // 更新缓存
@@ -824,6 +897,7 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
         capturedAt: Date.now(),
         contentType: head.contentType,
         size: head.contentLength ? formatSize(head.contentLength) : undefined,
+        pageUrl: meta?.pageUrl,
         requestHeaders: sanitizeHeaders(meta?.requestHeaders),
         confidence: 'confirmed',
         source: 'dom'
@@ -995,10 +1069,11 @@ function flattenHeaders(headers: Record<string, string | string[]>): Record<stri
 
 /** 只保留下载时有用的请求头，丢弃无关字段 */
 function sanitizeHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
-  if (!headers) return undefined
-  const KEEP = ['cookie', 'referer', 'user-agent', 'authorization', 'origin']
+  const normalizedHeaders = stripRangeHeader(headers)
+  if (!normalizedHeaders) return undefined
+  const KEEP = ['cookie', 'referer', 'user-agent', 'authorization', 'origin', 'accept', 'accept-language']
   const result: Record<string, string> = {}
-  for (const [k, v] of Object.entries(headers)) {
+  for (const [k, v] of Object.entries(normalizedHeaders)) {
     if (KEEP.includes(k.toLowerCase())) result[k] = v
   }
   return Object.keys(result).length ? result : undefined
@@ -1129,7 +1204,7 @@ async function resolveDownloadTarget(
   const downloadDir = await ensureDownloadDir()
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-    ...(resource.requestHeaders ?? {})
+    ...(sanitizeHeaders(resource.requestHeaders) ?? {})
   }
   const head = await headRequest(resource.url, headers)
   const fileNameBase =
@@ -1158,7 +1233,7 @@ async function downloadRemoteResource(
 ): Promise<{ filePath: string; fileName: string; finalUrl: string }> {
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-    ...(resource.requestHeaders ?? {})
+    ...(sanitizeHeaders(resource.requestHeaders) ?? {})
   }
   const { filePath, fileName, finalUrl } = await resolveDownloadTarget(resource, suffix)
   const head = await headRequest(resource.url, headers)

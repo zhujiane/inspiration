@@ -7,16 +7,36 @@ export interface PreviewModalProps {
   type?: 'video' | 'image' | 'audio' | string
   src?: string
   cover?: string
+  requestHeaders?: Record<string, string>
 }
 
-export default function PreviewModal({ open, onCancel, title, type, src, cover }: PreviewModalProps) {
+function normalizeMediaSrc(src?: string): string | undefined {
+  if (!src) return undefined
+  const actualSrc = src.replace(/\\/g, '/')
+  return actualSrc.startsWith('http') || actualSrc.startsWith('file://') ? actualSrc : `file:///${actualSrc}`
+}
+
+function buildPreviewProxyUrl(src?: string, requestHeaders?: Record<string, string>): string | undefined {
+  const normalizedSrc = normalizeMediaSrc(src)
+  if (!normalizedSrc || !normalizedSrc.startsWith('http')) return normalizedSrc
+  const search = new URLSearchParams()
+  search.set('url', normalizedSrc)
+  if (requestHeaders && Object.keys(requestHeaders).length > 0) {
+    search.set('headers', encodeURIComponent(JSON.stringify(requestHeaders)))
+  }
+  return `sniffer-media://preview?${search.toString()}`
+}
+
+export default function PreviewModal({ open, onCancel, title, type, src, cover, requestHeaders }: PreviewModalProps) {
   // Normalize type
   let mediaType = type
   if (type === '视频') mediaType = 'video'
   else if (type === '音频') mediaType = 'audio'
   else if (type === '图片') mediaType = 'image'
 
-  const actualSrc = src ? src.replace(/\\/g, '/') : undefined
+  const actualSrc = normalizeMediaSrc(src)
+  const previewSrc = buildPreviewProxyUrl(src, requestHeaders)
+  const previewCover = buildPreviewProxyUrl(cover, requestHeaders) || cover
 
   return (
     <Modal
@@ -40,7 +60,7 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover }
       >
         {mediaType === 'video' && actualSrc && (
           <video
-            src={actualSrc.startsWith('http') || actualSrc.startsWith('file://') ? actualSrc : `file:///${actualSrc}`}
+            src={previewSrc}
             controls
             autoPlay
             style={{ maxWidth: '100%', maxHeight: '70vh' }}
@@ -48,7 +68,7 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover }
         )}
         {mediaType === 'audio' && actualSrc && (
           <audio
-            src={actualSrc.startsWith('http') || actualSrc.startsWith('file://') ? actualSrc : `file:///${actualSrc}`}
+            src={previewSrc}
             controls
             autoPlay
             style={{ width: '80%' }}
@@ -56,10 +76,7 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover }
         )}
         {mediaType === 'image' && (
           <img
-            src={
-              cover ||
-              (actualSrc?.startsWith('http') || actualSrc?.startsWith('file://') ? actualSrc : `file:///${actualSrc}`)
-            }
+            src={previewCover || previewSrc}
             alt={title}
             style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
           />

@@ -151,9 +151,7 @@ export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> 
   }
 
   const metadata = await ffprobe(input.path, input.header)
-  const [stats, md5] = isUrl
-    ? [{ size: 0 }, undefined]
-    : await Promise.all([fs.stat(input.path), md5File(input.path)])
+  const [stats, md5] = isUrl ? [{ size: 0 }, undefined] : await Promise.all([fs.stat(input.path), md5File(input.path)])
 
   const videoStream = metadata.streams?.find((s) => s.codec_type === 'video')
   const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
