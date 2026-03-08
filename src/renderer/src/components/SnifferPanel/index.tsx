@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message } from 'antd'
+import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message, Popconfirm } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
@@ -211,15 +211,13 @@ export default function SnifferPanel({
                   <CheckSquareOutlined />
                 </button>
               </Tooltip>
-              <Tooltip title="清空" mouseEnterDelay={0.5}>
-                <button
-                  className="sniffer-panel__toolbar-btn sniffer-panel__toolbar-btn--danger"
-                  onClick={onClearAll}
-                  aria-label="清空"
-                >
-                  <ClearOutlined />
-                </button>
-              </Tooltip>
+              <Popconfirm title="确定清空吗？" onConfirm={onClearAll} okText="确定" cancelText="取消">
+                <Tooltip title="清空" mouseEnterDelay={0.5}>
+                  <button className="sniffer-panel__toolbar-btn sniffer-panel__toolbar-btn--danger" aria-label="清空">
+                    <ClearOutlined />
+                  </button>
+                </Tooltip>
+              </Popconfirm>
               <Tooltip title="合并" mouseEnterDelay={0.5}>
                 <button className="sniffer-panel__toolbar-btn" onClick={onMerge} aria-label="合并">
                   <MergeCellsOutlined />
