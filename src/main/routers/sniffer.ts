@@ -151,6 +151,7 @@ export interface SnifferStatsPayload {
   identifiedCount: number
   discardedCount: number
   analyzingCount: number
+  discardedUrls: string[]
 }
 
 // 内部请求元数据缓存：url → 收集到的请求信息
@@ -169,6 +170,7 @@ interface SnifferState {
   sniffedCount: number
   identifiedCount: number
   discardedCount: number
+  discardedUrls: string[]
   seenUrls: Set<string>
   seenOrder: string[]
   analyzingUrls: Set<string>
@@ -184,6 +186,7 @@ interface SnifferState {
 
 const snifferStates = new Map<string, SnifferState>()
 const listenedPartitions = new Set<string>()
+const MAX_DISCARDED_URLS = 100
 
 // ─────────────────────────────────────────────
 //  工具函数
@@ -196,6 +199,7 @@ function createState(partition: string): SnifferState {
     sniffedCount: 0,
     identifiedCount: 0,
     discardedCount: 0,
+    discardedUrls: [],
     seenUrls: new Set(),
     seenOrder: [],
     analyzingUrls: new Set(),
@@ -212,7 +216,8 @@ function statsOf(state?: SnifferState, partition?: string): SnifferStatsPayload 
     sniffedCount: state?.sniffedCount ?? 0,
     identifiedCount: state?.identifiedCount ?? 0,
     discardedCount: state?.discardedCount ?? 0,
-    analyzingCount: state?.analyzingUrls.size ?? 0
+    analyzingCount: state?.analyzingUrls.size ?? 0,
+    discardedUrls: state?.discardedUrls ?? []
   }
 }
 
@@ -224,6 +229,12 @@ function broadcast(channel: string, payload: any): void {
 
 function broadcastStats(partition: string, state?: SnifferState): void {
   broadcast('sniffer:stats', statsOf(state, partition))
+}
+
+function recordDiscardedUrl(partition: string, state: SnifferState, url: string): void {
+  state.discardedCount++
+  state.discardedUrls = [url, ...state.discardedUrls.filter((item) => item !== url)].slice(0, MAX_DISCARDED_URLS)
+  broadcastStats(partition, state)
 }
 
 function broadcastResource(partition: string, resource: SnifferResource): void {
@@ -540,6 +551,32 @@ function shouldProbeConfirmedMedia(url: string, contentType: string): boolean {
   }
 }
 
+function isAttachedPictureStream(stream: any): boolean {
+  const disposition = stream?.disposition ?? {}
+  if (disposition.attached_pic === 1 || disposition.attached_pic === true) return true
+
+  const codecName = String(stream?.codec_name ?? '').toLowerCase()
+  const codecTag = String(stream?.codec_tag_string ?? '').toLowerCase()
+  return ['mjpeg', 'png', 'webp'].includes(codecName) || codecTag === 'mp4a'
+}
+
+function fallbackAudioResource(url: string, meta?: RequestMeta, durationSecs?: number): SnifferResource {
+  return {
+    id: genId(),
+    type: 'audio',
+    url,
+    title: titleFromUrl(url),
+    capturedAt: Date.now(),
+    pageUrl: meta?.pageUrl,
+    contentType: meta?.contentType,
+    size: meta?.contentLength ? formatSize(meta.contentLength) : undefined,
+    duration: durationSecs ? formatDuration(durationSecs) : undefined,
+    requestHeaders: sanitizeHeaders(meta?.requestHeaders),
+    confidence: 'probable',
+    source: 'ffprobe'
+  }
+}
+
 function headRequest(url: string, extraHeaders?: Record<string, string>): Promise<HeadResult> {
   return new Promise((resolve) => {
     try {
@@ -677,21 +714,27 @@ async function analyzeByFfprobe(url: string, state: SnifferState): Promise<Sniff
     const metadata = await probeUrl(url, requestHeaders)
     const videoStreams = metadata.streams?.filter((s: any) => s.codec_type === 'video') ?? []
     const audioStreams = metadata.streams?.filter((s: any) => s.codec_type === 'audio') ?? []
+    const playableVideoStreams = videoStreams.filter((s: any) => !isAttachedPictureStream(s))
     const duration = parseDuration(metadata.format?.duration)
     const formatName: string = metadata.format?.format_name ?? ''
 
     const isImage =
       IMAGE_FFPROBE_FORMATS.has(formatName) ||
-      (videoStreams.some((s: any) => s.codec_name === 'mjpeg') && duration === 0)
+      (playableVideoStreams.some((s: any) => s.codec_name === 'mjpeg') && duration === 0)
 
     let type: 'video' | 'audio' | 'image' | null = null
-    if (isImage && videoStreams.length === 1) type = 'image'
-    else if (videoStreams.length > 0 && duration > 0) type = 'video'
-    else if (audioStreams.length > 0 && videoStreams.length === 0) type = 'audio'
+    if (isImage && playableVideoStreams.length === 1 && audioStreams.length === 0) type = 'image'
+    else if (playableVideoStreams.length > 0 && duration > 0) type = 'video'
+    else if (audioStreams.length > 0 && playableVideoStreams.length === 0) type = 'audio'
+    else if (audioStreams.length > 0 && shouldProbeConfirmedMedia(url, meta?.contentType || '')) type = 'audio'
+
+    if (!type && shouldProbeConfirmedMedia(url, meta?.contentType || '')) {
+      return fallbackAudioResource(url, meta, duration)
+    }
 
     if (!type) return null
 
-    const videoStream = videoStreams[0]
+    const videoStream = playableVideoStreams[0]
     const resolution = videoStream ? `${videoStream.width}×${videoStream.height}` : undefined
     const bytes = meta?.contentLength || 0
 
@@ -711,6 +754,10 @@ async function analyzeByFfprobe(url: string, state: SnifferState): Promise<Sniff
       source: 'ffprobe'
     }
   } catch (_e) {
+    if (shouldProbeConfirmedMedia(url, meta?.contentType || '')) {
+      return fallbackAudioResource(url, meta)
+    }
+
     // ffprobe 失败，放弃此 URL
     return null
   }
@@ -914,12 +961,10 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
       // HEAD 无响应类型（某些 CDN 流媒体），只靠 URL 判断 → ffprobe
       enqueueForFfprobe(partition, state, url)
     } else {
-      state.discardedCount++
-      broadcastStats(partition, state)
+      recordDiscardedUrl(partition, state, url)
     }
   } catch {
-    state.discardedCount++
-    broadcastStats(partition, state)
+    recordDiscardedUrl(partition, state, url)
   }
 }
 
@@ -943,7 +988,7 @@ function drainQueue(partition: string, state: SnifferState): void {
     void analyzeByFfprobe(url, state)
       .then((resource) => {
         if (!resource) {
-          state.discardedCount++
+          recordDiscardedUrl(partition, state, url)
           return
         }
         if (snifferStates.get(partition) === state && state.active) {
@@ -1045,6 +1090,7 @@ function resetState(partition: string): void {
   state.sniffedCount = 0
   state.identifiedCount = 0
   state.discardedCount = 0
+  state.discardedUrls = []
   state.seenUrls.clear()
   state.seenOrder = []
   state.analyzingUrls.clear()

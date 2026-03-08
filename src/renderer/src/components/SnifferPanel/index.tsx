@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space } from 'antd'
+import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
@@ -14,9 +14,10 @@ import {
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
+import { trpc } from '../../lib/trpc'
 
 export interface AdvancedSearchFilters {
-  type: 'all' | 'image' | 'video' | 'audio'
+  type: Array<'all' | 'image' | 'video' | 'audio'>
   minWidth: number
   minHeight: number
   minSize: number // KB
@@ -24,15 +25,15 @@ export interface AdvancedSearchFilters {
 }
 
 export const DEFAULT_ADVANCED_FILTERS: AdvancedSearchFilters = {
-  type: 'all',
-  minWidth: 120,
-  minHeight: 120,
-  minSize: 100, // 100KB
-  minDuration: 5 // 5s
+  type: ['video', 'audio'],
+  minWidth: 0,
+  minHeight: 0,
+  minSize: 0, // 100KB
+  minDuration: 0 // 5s
 }
 
 export const EMPTY_ADVANCED_FILTERS: AdvancedSearchFilters = {
-  type: 'all',
+  type: ['video', 'audio'],
   minWidth: 0,
   minHeight: 0,
   minSize: 0,
@@ -46,6 +47,7 @@ export interface SnifferStats {
   discardedCount: number
   /** 精确的正在分析中数量（来自主进程 analyzingUrls.size） */
   analyzingCount?: number
+  discardedUrls?: string[]
 }
 
 interface SnifferPanelProps {
@@ -88,6 +90,7 @@ export default function SnifferPanel({
   onResourceCopyUrl
 }: SnifferPanelProps): React.JSX.Element {
   const [advancedModalVisible, setAdvancedModalVisible] = useState(false)
+  const [discardedModalVisible, setDiscardedModalVisible] = useState(false)
   const [tempFilters, setTempFilters] = useState<AdvancedSearchFilters | undefined>(advancedFilters)
 
   // Sync temp filters when props change
@@ -105,7 +108,27 @@ export default function SnifferPanel({
   const sniffedCount = stats?.sniffedCount ?? 0
   const identifiedCount = stats?.identifiedCount ?? 0
   const discardedCount = stats?.discardedCount ?? 0
+  const discardedUrls = stats?.discardedUrls ?? []
   const progressPct = sniffedCount > 0 ? Math.round(((identifiedCount + discardedCount) / sniffedCount) * 100) : 0
+
+  const handleOpenDiscardedUrl = async (url: string) => {
+    try {
+      await trpc.system.openExternal.mutate({ url })
+    } catch (error) {
+      console.error('Open discarded URL failed:', error)
+      message.error('打开链接失败')
+    }
+  }
+
+  const handleCopyDiscardedUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      message.success('链接已复制')
+    } catch (error) {
+      console.error('Copy discarded URL failed:', error)
+      message.error('复制链接失败')
+    }
+  }
 
   return (
     <aside className={`sniffer-panel ${collapsed ? 'sniffer-panel--collapsed' : ''}`} id="sniffer-panel">
@@ -148,9 +171,16 @@ export default function SnifferPanel({
                   </span>
                 </Tooltip>
                 <Tooltip title="已丢弃非媒体URL">
-                  <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--discarded">
+                  <button
+                    type="button"
+                    className="sniffer-panel__stats-badge sniffer-panel__stats-badge--discarded"
+                    onClick={() => discardedUrls.length > 0 && setDiscardedModalVisible(true)}
+                    disabled={discardedUrls.length === 0}
+                    aria-label="查看已丢弃URL列表"
+                    style={{ cursor: discardedUrls.length > 0 ? 'pointer' : 'default', border: 'none' }}
+                  >
                     {discardedCount} 丢弃
-                  </span>
+                  </button>
                 </Tooltip>
                 {analyzing > 0 && (
                   <Tooltip title="正在分析中">
@@ -290,8 +320,9 @@ export default function SnifferPanel({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 60 }}>类型：</span>
             <Select
-              value={tempFilters?.type ?? 'all'}
-              onChange={(val) => setTempFilters((prev) => ({ ...prev!, type: val }))}
+              mode="multiple"
+              value={tempFilters?.type ?? DEFAULT_ADVANCED_FILTERS.type}
+              onChange={(val) => setTempFilters((prev) => ({ ...prev!, type: val as AdvancedSearchFilters['type'] }))}
               style={{ flex: 1 }}
               options={[
                 { value: 'all', label: '全部' },
@@ -378,6 +409,55 @@ export default function SnifferPanel({
             </Space>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        title={`已丢弃 URL（${discardedUrls.length}）`}
+        open={discardedModalVisible}
+        onCancel={() => setDiscardedModalVisible(false)}
+        footer={null}
+        width={720}
+        destroyOnHidden
+      >
+        {discardedUrls.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+            {discardedUrls.map((url) => (
+              <div
+                key={url}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  padding: '8px 10px',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 6
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => void handleOpenDiscardedUrl(url)}
+                  style={{
+                    flex: 1,
+                    padding: 0,
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--color-primary)',
+                    cursor: 'pointer',
+                    wordBreak: 'break-all'
+                  }}
+                >
+                  {url}
+                </button>
+                <Button size="small" onClick={() => void handleCopyDiscardedUrl(url)}>
+                  复制
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>暂无丢弃 URL</div>
+        )}
       </Modal>
     </aside>
   )

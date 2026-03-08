@@ -119,7 +119,8 @@ function App(): React.JSX.Element {
         sniffedCount: data.sniffedCount,
         identifiedCount: data.identifiedCount,
         discardedCount: data.discardedCount,
-        analyzingCount: data.analyzingCount
+        analyzingCount: data.analyzingCount,
+        discardedUrls: data.discardedUrls
       })
     })
 
