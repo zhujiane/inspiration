@@ -5,7 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
 import { setupTRPC } from './core/trpc'
 import log, { initLogger } from './core/logger'
-import { registerBlockedSchemes, setupWebContentPolicies } from './core/web-content-policies'
+import { registerBlockedSchemes, setupWebContentPolicies } from './core/protocol'
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
