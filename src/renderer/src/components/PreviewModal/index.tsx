@@ -59,21 +59,9 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover, 
         }}
       >
         {mediaType === 'video' && actualSrc && (
-          <video
-            src={previewSrc}
-            controls
-            autoPlay
-            style={{ maxWidth: '100%', maxHeight: '70vh' }}
-          />
+          <video src={previewSrc} controls autoPlay style={{ maxWidth: '100%', maxHeight: '70vh' }} />
         )}
-        {mediaType === 'audio' && actualSrc && (
-          <audio
-            src={previewSrc}
-            controls
-            autoPlay
-            style={{ width: '80%' }}
-          />
-        )}
+        {mediaType === 'audio' && actualSrc && <audio src={previewSrc} controls autoPlay style={{ width: '80%' }} />}
         {mediaType === 'image' && (
           <img
             src={previewCover || previewSrc}

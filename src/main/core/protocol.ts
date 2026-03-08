@@ -29,24 +29,22 @@ const registerBlockedProtocolHandlers = (ses: Electron.Session, scope: string): 
 }
 
 export const registerBlockedSchemes = (): void => {
-  protocol.registerSchemesAsPrivileged(
-    [
-      ...BLOCKED_PROTOCOLS.map((scheme) => ({
-        scheme,
-        privileges: { standard: false, secure: false, supportFetchAPI: false }
-      })),
-      {
-        scheme: SNIFFER_MEDIA_SCHEME,
-        privileges: {
-          standard: true,
-          secure: true,
-          supportFetchAPI: true,
-          stream: true,
-          corsEnabled: true
-        }
+  protocol.registerSchemesAsPrivileged([
+    ...BLOCKED_PROTOCOLS.map((scheme) => ({
+      scheme,
+      privileges: { standard: false, secure: false, supportFetchAPI: false }
+    })),
+    {
+      scheme: SNIFFER_MEDIA_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+        corsEnabled: true
       }
-    ]
-  )
+    }
+  ])
 }
 
 export const setupWebContentPolicies = (mainWindow: BrowserWindow): void => {
