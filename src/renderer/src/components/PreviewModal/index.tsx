@@ -18,10 +18,10 @@ function normalizeMediaSrc(src?: string): string | undefined {
 
 function buildPreviewProxyUrl(src?: string, requestHeaders?: Record<string, string>): string | undefined {
   const normalizedSrc = normalizeMediaSrc(src)
-  if (!normalizedSrc || !normalizedSrc.startsWith('http')) return normalizedSrc
+  if (!normalizedSrc) return normalizedSrc
   const search = new URLSearchParams()
   search.set('url', normalizedSrc)
-  if (requestHeaders && Object.keys(requestHeaders).length > 0) {
+  if (normalizedSrc.startsWith('http') && requestHeaders && Object.keys(requestHeaders).length > 0) {
     search.set('headers', encodeURIComponent(JSON.stringify(requestHeaders)))
   }
   return `sniffer-media://preview?${search.toString()}`
@@ -36,7 +36,7 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover, 
 
   const actualSrc = normalizeMediaSrc(src)
   const previewSrc = buildPreviewProxyUrl(src, requestHeaders)
-  const previewCover = buildPreviewProxyUrl(cover, requestHeaders) || cover
+  const previewCover = buildPreviewProxyUrl(cover, requestHeaders)
 
   return (
     <Modal

@@ -18,6 +18,8 @@ import PreviewModal from './components/PreviewModal'
 import { Modal, Form, Select, Input, message } from 'antd'
 import { trpc } from './lib/trpc'
 
+const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
+
 /* ============================================================
    Ant Design Compact Theme Tokens
    ============================================================ */
@@ -537,10 +539,11 @@ function App(): React.JSX.Element {
       if (!res) return
       try {
         await trpc.sniffer.download.mutate({ resource: res as any })
+        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
         message.success('下载完成，已添加到素材库')
       } catch (error) {
         console.error('Sniffer download failed:', error)
-        message.error('下载失败')
+        message.error((error as Error)?.message || '下载失败，未添加到素材库')
       }
     },
     [resources]
@@ -557,11 +560,12 @@ function App(): React.JSX.Element {
       const result = (await trpc.sniffer.mergeSelected.mutate({ resources: selectedResources as any })) as {
         mergedCount: number
       }
-      message.success(`合并完成，已生成 ${result.mergedCount} 个素材`)
+      window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
+      message.success(`合并完成，已自动添加 ${result.mergedCount} 个素材到素材库`)
       setResources((prev) => prev.map((item) => (item.selected ? { ...item, selected: false } : item)))
     } catch (error) {
       console.error('Sniffer merge failed:', error)
-      message.error((error as Error)?.message || '合并失败')
+      message.error((error as Error)?.message || '合并失败，未添加到素材库')
     }
   }, [resources])
 

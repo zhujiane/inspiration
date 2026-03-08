@@ -32,6 +32,7 @@ import type { Resource } from '@shared/db/resource-schema'
 import PreviewModal from '../components/PreviewModal'
 
 const { Search } = Input
+const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
 
 /* ============================================================
    Formatters
@@ -84,6 +85,17 @@ export default function ResourcePage() {
 
   useEffect(() => {
     fetchData()
+  }, [])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      fetchData()
+    }
+
+    window.addEventListener(RESOURCE_LIBRARY_REFRESH_EVENT, handleRefresh)
+    return () => {
+      window.removeEventListener(RESOURCE_LIBRARY_REFRESH_EVENT, handleRefresh)
+    }
   }, [])
 
   // --- Filtered Data ---
