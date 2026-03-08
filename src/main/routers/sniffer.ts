@@ -407,6 +407,33 @@ async function getConfigValue(key: string): Promise<string> {
   return config?.value?.trim() ?? ''
 }
 
+async function getMaxConcurrentDownloads(): Promise<number> {
+  const rawValue = await getConfigValue('download.maxConcurrent')
+  const parsedValue = Number.parseInt(rawValue, 10)
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 3
+}
+
+async function runWithConcurrencyLimit<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return
+
+  const workerCount = Math.max(1, Math.min(limit, items.length))
+  let currentIndex = 0
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = currentIndex++
+        if (index >= items.length) return
+        await worker(items[index], index)
+      }
+    })
+  )
+}
+
 async function ensureDownloadDir(): Promise<string> {
   const configuredPath = await getConfigValue('download.path')
   const downloadDir = configuredPath || path.join(app.getPath('downloads'), 'download')
@@ -1463,9 +1490,10 @@ export const snifferRouter = trpc.router({
       }
 
       const downloadDir = await ensureDownloadDir()
-      const mergedResults: Array<{ filePath: string; libraryItem: any }> = []
+      const maxConcurrent = await getMaxConcurrentDownloads()
+      const mergedResults: Array<{ filePath: string; libraryItem: any }> = new Array(pairs.length)
 
-      for (const [index, pair] of pairs.entries()) {
+      await runWithConcurrencyLimit(pairs, maxConcurrent, async (pair, index) => {
         const tempFiles: string[] = []
         try {
           const [videoDownloaded, audioDownloaded] = await Promise.all([
@@ -1474,7 +1502,10 @@ export const snifferRouter = trpc.router({
           ])
           tempFiles.push(videoDownloaded.filePath, audioDownloaded.filePath)
 
-          const outputName = `${sanitizeFilename(path.basename(pair.video.title, path.extname(pair.video.title)) || `merged-${index + 1}`)}-merged.mp4`
+          const outputBaseName = sanitizeFilename(
+            path.basename(pair.video.title, path.extname(pair.video.title)) || `merged-${index + 1}`
+          )
+          const outputName = `${outputBaseName}-merged-${index + 1}.mp4`
           const outputPath = await ensureUniqueFilePath(path.join(downloadDir, outputName))
           await mergeAudioVideo(videoDownloaded.filePath, audioDownloaded.filePath, outputPath)
 
@@ -1493,11 +1524,11 @@ export const snifferRouter = trpc.router({
             })
             .returning()
 
-          mergedResults.push({ filePath: outputPath, libraryItem })
+          mergedResults[index] = { filePath: outputPath, libraryItem }
         } finally {
           await Promise.all(tempFiles.map((tempPath) => safeUnlink(tempPath)))
         }
-      }
+      })
 
       return { success: true, mergedCount: mergedResults.length, items: mergedResults }
     })
