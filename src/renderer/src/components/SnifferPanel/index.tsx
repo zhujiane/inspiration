@@ -14,6 +14,8 @@ import {
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
+import BatchActionModal from './BatchActionModal'
+import type { BatchActionItem } from './BatchActionModal'
 import { trpc } from '../../lib/trpc'
 
 export interface AdvancedSearchFilters {
@@ -56,12 +58,17 @@ interface SnifferPanelProps {
   searchText: string
   stats?: SnifferStats
   advancedFilters?: AdvancedSearchFilters
+  mergeTasks?: BatchActionItem[]
+  mergeModalVisible?: boolean
+  mergeSubmitting?: boolean
   onToggle: () => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
   onInvertSelect?: () => void
   onClearAll?: () => void
   onMerge?: () => void
+  onMergeCancel?: () => void
+  onMergeConfirm?: () => void
   onAdvancedSearch?: () => void
   onAdvancedFiltersChange?: (filters: AdvancedSearchFilters) => void
   onResourceSelect?: (id: string, selected: boolean) => void
@@ -77,11 +84,16 @@ export default function SnifferPanel({
   searchText,
   stats,
   advancedFilters,
+  mergeTasks = [],
+  mergeModalVisible = false,
+  mergeSubmitting = false,
   onToggle,
   onSearchChange,
   onInvertSelect,
   onClearAll,
   onMerge,
+  onMergeCancel,
+  onMergeConfirm,
   onAdvancedFiltersChange,
   onResourceSelect,
   onResourceDelete,
@@ -457,6 +469,18 @@ export default function SnifferPanel({
           <div style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>暂无丢弃 URL</div>
         )}
       </Modal>
+
+      <BatchActionModal
+        title="合并详情"
+        open={mergeModalVisible}
+        items={mergeTasks}
+        confirmText={mergeTasks.every((item) => item.status === 'success') ? '已完成' : '开始合并'}
+        confirmLoading={mergeSubmitting}
+        confirmDisabled={mergeTasks.length === 0 || mergeSubmitting || mergeTasks.every((item) => item.status === 'success')}
+        emptyText="当前没有可合并的音视频任务"
+        onCancel={() => onMergeCancel?.()}
+        onConfirm={() => onMergeConfirm?.()}
+      />
     </aside>
   )
 }

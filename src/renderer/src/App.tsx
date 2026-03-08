@@ -13,12 +13,75 @@ import type { SnifferStats } from './components/SnifferPanel'
 import type { AdvancedSearchFilters } from './components/SnifferPanel'
 import { DEFAULT_ADVANCED_FILTERS } from './components/SnifferPanel'
 import type { MediaResource } from './components/SnifferPanel/MediaCard'
+import type { BatchActionItem, BatchActionItemStatus } from './components/SnifferPanel/BatchActionModal'
 import StatusBar from './components/StatusBar'
 import PreviewModal from './components/PreviewModal'
 import { Modal, Form, Select, Input, message } from 'antd'
 import { trpc } from './lib/trpc'
 
 const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
+
+interface MergeTask extends BatchActionItem {
+  video: MediaResource
+  audio: MediaResource
+}
+
+function parseDurationText(value?: string): number {
+  if (!value) return 0
+  const parts = value
+    .split(':')
+    .map((part) => Number(part.trim()))
+    .filter((part) => !Number.isNaN(part))
+  if (parts.length === 0) return 0
+  return parts.reduce((total, part) => total * 60 + part, 0)
+}
+
+function pairMergeResources(items: MediaResource[]): Array<{ video: MediaResource; audio: MediaResource }> {
+  const videos = items.filter((item) => item.type === 'video')
+  const audios = items.filter((item) => item.type === 'audio')
+  const usedAudioIds = new Set<string>()
+  const pairs: Array<{ video: MediaResource; audio: MediaResource }> = []
+
+  for (const video of videos) {
+    const videoDuration = parseDurationText(video.duration)
+    const videoCapturedAt = video.capturedAt ?? 0
+    const candidates = audios
+      .filter((audio) => !usedAudioIds.has(audio.id))
+      .map((audio) => ({
+        audio,
+        durationDiff: Math.abs(videoDuration - parseDurationText(audio.duration)),
+        tsDiff: Math.abs(videoCapturedAt - (audio.capturedAt ?? 0))
+      }))
+      .filter((item) => item.durationDiff <= 1)
+      .sort((a, b) => a.durationDiff - b.durationDiff || a.tsDiff - b.tsDiff)
+
+    const matched = candidates[0]
+    if (!matched) continue
+
+    usedAudioIds.add(matched.audio.id)
+    pairs.push({ video, audio: matched.audio })
+  }
+
+  return pairs
+}
+
+function createMergeTask(pair: { video: MediaResource; audio: MediaResource }, index: number): MergeTask {
+  return {
+    id: `${pair.video.id}-${pair.audio.id}-${index}`,
+    title: pair.video.title,
+    coverUrl: pair.video.thumbnailUrl || pair.video.url,
+    metrics: [
+      pair.video.duration ? `时长 ${pair.video.duration}` : '',
+      pair.video.size ? `视频 ${pair.video.size}` : '',
+      pair.audio.size ? `音频 ${pair.audio.size}` : ''
+    ].filter(Boolean),
+    progress: 0,
+    status: 'pending',
+    statusText: '待合并',
+    video: pair.video,
+    audio: pair.audio
+  }
+}
 
 /* ============================================================
    Ant Design Compact Theme Tokens
@@ -65,6 +128,9 @@ function App(): React.JSX.Element {
     discardedCount: 0
   })
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters>(DEFAULT_ADVANCED_FILTERS)
+  const [mergeModalVisible, setMergeModalVisible] = useState(false)
+  const [mergeSubmitting, setMergeSubmitting] = useState(false)
+  const [mergeTasks, setMergeTasks] = useState<MergeTask[]>([])
 
   // --- Preview State ---
   const [previewVisible, setPreviewVisible] = useState(false)
@@ -103,7 +169,8 @@ function App(): React.JSX.Element {
           ...existing,
           ...resource,
           id: existing.id,
-          selected: existing.selected
+          selected: existing.selected,
+          merged: existing.merged
         }
         const next = [...prev]
         next[existingIndex] = merged
@@ -508,6 +575,9 @@ function App(): React.JSX.Element {
 
   const handleClearAll = useCallback(() => {
     setResources([])
+    setMergeTasks([])
+    setMergeModalVisible(false)
+    setMergeSubmitting(false)
     const partition = getActivePartition()
     trpc.sniffer.reset.mutate({ partition }).catch(() => {})
     setSnifferStats({
@@ -549,25 +619,108 @@ function App(): React.JSX.Element {
     [resources]
   )
 
-  const handleMerge = useCallback(async () => {
-    const selectedResources = resources.filter((r) => r.selected && (r.type === 'video' || r.type === 'audio'))
+  const handleMergeOpen = useCallback(() => {
+    const selectedResources = resources.filter(
+      (r) => r.selected && !r.merged && (r.type === 'video' || r.type === 'audio')
+    )
     if (selectedResources.length < 2) {
-      message.warning('请至少选择一个视频和一个音频')
+      message.warning('请至少选择一个未合并的视频和一个未合并的音频')
       return
     }
 
-    try {
-      const result = (await trpc.sniffer.mergeSelected.mutate({ resources: selectedResources as any })) as {
-        mergedCount: number
-      }
-      window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
-      message.success(`合并完成，已自动添加 ${result.mergedCount} 个素材到素材库`)
-      setResources((prev) => prev.map((item) => (item.selected ? { ...item, selected: false } : item)))
-    } catch (error) {
-      console.error('Sniffer merge failed:', error)
-      message.error((error as Error)?.message || '合并失败，未添加到素材库')
+    const pairs = pairMergeResources(selectedResources)
+    if (pairs.length === 0) {
+      message.warning('未找到可合并的音视频配对，请检查选中项的时长是否接近')
+      return
     }
+
+    setMergeTasks(pairs.map((pair, index) => createMergeTask(pair, index)))
+    setMergeModalVisible(true)
   }, [resources])
+
+  const handleMergeConfirm = useCallback(async () => {
+    const tasksToRun = mergeTasks.filter((task) => task.status !== 'success')
+    if (tasksToRun.length === 0) return
+
+    setMergeSubmitting(true)
+    const mergedIds = new Set<string>()
+    let mergedCount = 0
+
+    try {
+      for (const task of tasksToRun) {
+        setMergeTasks((prev) =>
+          prev.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  status: 'processing' as BatchActionItemStatus,
+                  statusText: '下载并合并中',
+                  progress: 15,
+                  errorMessage: undefined
+                }
+              : item
+          )
+        )
+
+        try {
+          await trpc.sniffer.mergeSelected.mutate({ resources: [task.video, task.audio] as any })
+          mergedIds.add(task.video.id)
+          mergedIds.add(task.audio.id)
+          mergedCount += 1
+
+          setMergeTasks((prev) =>
+            prev.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: 'success' as BatchActionItemStatus,
+                    statusText: '合并完成',
+                    progress: 100
+                  }
+                : item
+            )
+          )
+        } catch (error) {
+          console.error('Sniffer merge failed:', error)
+          setMergeTasks((prev) =>
+            prev.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: 'error' as BatchActionItemStatus,
+                    statusText: '合并失败',
+                    progress: 0,
+                    errorMessage: (error as Error)?.message || '合并失败，未添加到素材库'
+                  }
+                : item
+            )
+          )
+        }
+      }
+
+      if (mergedCount > 0) {
+        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
+        setResources((prev) =>
+          prev.map((item) =>
+            mergedIds.has(item.id)
+              ? {
+                  ...item,
+                  selected: false,
+                  merged: true
+                }
+              : item
+          )
+        )
+        message.success(`合并完成，已自动添加 ${mergedCount} 个素材到素材库`)
+      }
+
+      if (tasksToRun.length !== mergedCount) {
+        message.error('部分任务合并失败，请查看详情后重试')
+      }
+    } finally {
+      setMergeSubmitting(false)
+    }
+  }, [mergeTasks])
 
   const handleResourceCopyUrl = useCallback(
     (id: string) => {
@@ -675,12 +828,17 @@ function App(): React.JSX.Element {
                 searchText={snifferSearch}
                 stats={snifferStats}
                 advancedFilters={advancedFilters}
+                mergeTasks={mergeTasks}
+                mergeModalVisible={mergeModalVisible}
+                mergeSubmitting={mergeSubmitting}
                 onToggle={() => setSnifferCollapsed((p) => !p)}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
                 onInvertSelect={handleInvertSelect}
                 onClearAll={handleClearAll}
-                onMerge={handleMerge}
+                onMerge={handleMergeOpen}
+                onMergeCancel={() => !mergeSubmitting && setMergeModalVisible(false)}
+                onMergeConfirm={handleMergeConfirm}
                 onAdvancedFiltersChange={setAdvancedFilters}
                 onResourceSelect={handleResourceSelect}
                 onResourceDelete={handleResourceDelete}
