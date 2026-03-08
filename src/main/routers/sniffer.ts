@@ -173,11 +173,15 @@ interface SnifferState {
   discardedUrls: string[]
   seenUrls: Set<string>
   seenOrder: string[]
+  pendingHeadUrls: Set<string>
+  pendingAnalyzeUrls: Set<string>
   analyzingUrls: Set<string>
   pendingUrls: string[]
   runningCount: number
   /** url → 最近请求元数据缓存 */
   requestMetaCache: Map<string, RequestMeta>
+  /** requestId → 本次请求的元数据，用于在 response 阶段精确关联请求头 */
+  requestMetaById: Map<string, RequestMeta>
 }
 
 // ─────────────────────────────────────────────
@@ -202,10 +206,13 @@ function createState(partition: string): SnifferState {
     discardedUrls: [],
     seenUrls: new Set(),
     seenOrder: [],
+    pendingHeadUrls: new Set(),
+    pendingAnalyzeUrls: new Set(),
     analyzingUrls: new Set(),
     pendingUrls: [],
     runningCount: 0,
-    requestMetaCache: new Map()
+    requestMetaCache: new Map(),
+    requestMetaById: new Map()
   }
 }
 
@@ -459,6 +466,26 @@ function cacheRequestMeta(state: SnifferState, url: string, meta: RequestMeta): 
     const firstKey = state.requestMetaCache.keys().next().value
     if (firstKey) state.requestMetaCache.delete(firstKey)
   }
+}
+
+function cacheRequestMetaById(state: SnifferState, requestId: string, meta: RequestMeta): void {
+  state.requestMetaById.set(requestId, meta)
+  if (state.requestMetaById.size > 1000) {
+    const firstKey = state.requestMetaById.keys().next().value
+    if (firstKey) state.requestMetaById.delete(firstKey)
+  }
+}
+
+function consumeRequestMetaById(state: SnifferState, requestId?: string): RequestMeta | undefined {
+  if (!requestId) return undefined
+  const meta = state.requestMetaById.get(requestId)
+  if (meta) state.requestMetaById.delete(requestId)
+  return meta
+}
+
+function dropRequestMetaById(state: SnifferState, requestId?: string): void {
+  if (!requestId) return
+  state.requestMetaById.delete(requestId)
 }
 
 // ─────────────────────────────────────────────
@@ -779,19 +806,19 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   const ct = flatResHeaders['content-type'] || ''
   const contentLength = resolveContentLength(flatResHeaders)
 
-  // 收集原始请求头缓存（用于下载时解决 403）
-  const flatReqHeaders = flattenHeaders((details as any).requestHeaders ?? {})
+  // 使用 requestId 精确关联请求头，避免多个相同 URL 的请求互相污染
+  const requestMeta = consumeRequestMetaById(state, (details as { requestId?: string }).requestId)
   const existingMeta = state.requestMetaCache.get(url)
   const mergedRequestHeaders = {
     ...(existingMeta?.requestHeaders ?? {}),
-    ...flatReqHeaders
+    ...(requestMeta?.requestHeaders ?? {})
   }
   const meta: RequestMeta = {
     requestHeaders: mergedRequestHeaders,
     referer: getHeaderValue(mergedRequestHeaders, 'referer'),
-    pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
+    pageUrl: requestMeta?.pageUrl || existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
     contentType: ct,
-    contentLength: Math.max(contentLength, existingMeta?.contentLength ?? 0),
+    contentLength: Math.max(contentLength, requestMeta?.contentLength ?? 0, existingMeta?.contentLength ?? 0),
     ts: Date.now()
   }
   cacheRequestMeta(state, url, meta)
@@ -840,7 +867,9 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
 
   // 模糊类型 + URL 看起来像媒体 → 进入 ffprobe 队列
   if (isAmbiguousContentType(ct) && mightBeMediaByUrl(url)) {
+    state.sniffedCount++
     enqueueForFfprobe(partition, state, url)
+    broadcastStats(partition, state)
     return
   }
 }
@@ -851,7 +880,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
 
 function handleBeforeSendHeaders(
   partition: string,
-  details: Electron.BeforeSendResponse & { url: string; requestHeaders: Record<string, string> }
+  details: { url: string; requestHeaders: Record<string, string>; requestId?: string }
 ): void {
   const state = snifferStates.get(partition)
   if (!state || !state.active) return
@@ -875,6 +904,17 @@ function handleBeforeSendHeaders(
     ts: Date.now()
   })
 
+  if (details.requestId) {
+    cacheRequestMetaById(state, details.requestId, {
+      requestHeaders: mergedRequestHeaders,
+      referer: getHeaderValue(mergedRequestHeaders, 'referer'),
+      pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
+      contentType: existingMeta?.contentType,
+      contentLength: existingMeta?.contentLength,
+      ts: Date.now()
+    })
+  }
+
   if (mightBeMediaByRequestHeaders(url, details.requestHeaders)) {
     // 先不计入 sniffedCount，等 onResponseStarted 确认
     // 但也要标记避免重复，加入轻量候选池
@@ -894,13 +934,16 @@ function handleDomUrls(partition: string, urls: string[]): void {
     const url = normalizeUrl(raw)
     if (shouldSkip(url)) continue
     if (state.seenUrls.has(url)) continue
+    if (state.pendingHeadUrls.has(url)) continue
 
     // DOM 扫到的 URL 先走 HEAD 请求验证（快速，比 ffprobe 更轻量）
-    rememberSeenUrl(state, url)
+    state.pendingHeadUrls.add(url)
     state.sniffedCount++
     broadcastStats(partition, state)
 
-    void verifyByHead(url, state, partition)
+    void verifyByHead(url, state, partition).finally(() => {
+      state.pendingHeadUrls.delete(url)
+    })
   }
 }
 
@@ -929,6 +972,7 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
 
       if (mediaType === 'image' && head.contentLength > 0 && head.contentLength < MIN_IMAGE_SIZE) return
 
+      rememberSeenUrl(state, url)
       // 更新缓存
       cacheRequestMeta(state, url, {
         ...meta,
@@ -973,7 +1017,9 @@ async function verifyByHead(url: string, state: SnifferState, partition: string)
 // ─────────────────────────────────────────────
 
 function enqueueForFfprobe(partition: string, state: SnifferState, url: string): void {
-  if (state.analyzingUrls.has(url)) return
+  if (state.analyzingUrls.has(url) || state.pendingAnalyzeUrls.has(url)) return
+  if (!state.seenUrls.has(url)) rememberSeenUrl(state, url)
+  state.pendingAnalyzeUrls.add(url)
   state.pendingUrls.push(url)
   drainQueue(partition, state)
 }
@@ -981,6 +1027,7 @@ function enqueueForFfprobe(partition: string, state: SnifferState, url: string):
 function drainQueue(partition: string, state: SnifferState): void {
   while (state.active && state.runningCount < MAX_CONCURRENT_ANALYZE && state.pendingUrls.length > 0) {
     const url = state.pendingUrls.shift()!
+    state.pendingAnalyzeUrls.delete(url)
     state.runningCount++
     state.analyzingUrls.add(url)
     broadcastStats(partition, state)
@@ -1029,7 +1076,7 @@ function ensurePartitionListener(partition: string): void {
     handleBeforeSendHeaders(partition, {
       url,
       requestHeaders: details.requestHeaders as Record<string, string>,
-      cancel: false
+      requestId: (details as { requestId?: string }).requestId
     })
   })
 
@@ -1038,6 +1085,14 @@ function ensurePartitionListener(partition: string): void {
     const partition = findPartitionForSession(ses)
     if (!partition) return
     handleResponseStarted(partition, details)
+  })
+
+  ses.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, (details) => {
+    const partition = findPartitionForSession(ses)
+    if (!partition) return
+    const state = snifferStates.get(partition)
+    if (!state) return
+    dropRequestMetaById(state, (details as { requestId?: string }).requestId)
   })
 
   log.info(`[Sniffer] Listeners attached to partition: ${partition}`)
@@ -1075,6 +1130,8 @@ function stopInterception(partition: string): void {
   }
   state.active = false
   state.pendingUrls = []
+  state.pendingHeadUrls.clear()
+  state.pendingAnalyzeUrls.clear()
   state.analyzingUrls.clear()
   // 保留 seenUrls / requestMetaCache 供停止后查询
   log.info(`[Sniffer] Stopped: ${partition}`)
@@ -1093,9 +1150,12 @@ function resetState(partition: string): void {
   state.discardedUrls = []
   state.seenUrls.clear()
   state.seenOrder = []
+  state.pendingHeadUrls.clear()
+  state.pendingAnalyzeUrls.clear()
   state.analyzingUrls.clear()
   state.pendingUrls = []
   state.requestMetaCache.clear()
+  state.requestMetaById.clear()
   broadcastStats(partition, state)
 }
 

@@ -16,6 +16,10 @@ type ProbeStream = {
   width?: number
   height?: number
   codec_name?: string
+  codec_tag_string?: string
+  disposition?: {
+    attached_pic?: number | boolean
+  }
 }
 
 type ProbeMetadata = {
@@ -45,6 +49,8 @@ export type AnalyzeInput = {
 }
 
 const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'])
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+const FFMPEG_TIMEOUT_MS = 15_000
 
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
 
@@ -55,12 +61,15 @@ const parseDuration = (raw: unknown): number => {
 }
 
 const toFfmpegHeaders = (header?: Record<string, string>): string | null => {
-  if (!header) return null
-  const lines = Object.entries(header)
+  const normalizedHeader = {
+    'User-Agent': DEFAULT_USER_AGENT,
+    ...(header ?? {})
+  }
+  const lines = Object.entries(normalizedHeader)
     .filter(([, value]) => typeof value === 'string' && value.trim())
-    .map(([key, value]) => `${key}: ${value}`)
+    .map(([key, value]) => `${key}: ${value.replace(/[\r\n]+/g, ' ').trim()}`)
     .join('\r\n')
-  return lines || null
+  return lines ? `${lines}\r\n` : null
 }
 
 const createInputCommand = (source: string, header?: Record<string, string>) => {
@@ -69,12 +78,17 @@ const createInputCommand = (source: string, header?: Record<string, string>) => 
   if (headerLines) {
     command.inputOptions(['-headers', headerLines])
   }
+  if (isHttpUrl(source)) {
+    command.inputOptions(['-rw_timeout', String(FFMPEG_TIMEOUT_MS * 1000), '-reconnect', '1', '-reconnect_streamed', '1'])
+  }
   return command
 }
 
 const ffprobe = (source: string, header?: Record<string, string>): Promise<ProbeMetadata> =>
   new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ffprobe timeout')), FFMPEG_TIMEOUT_MS)
     createInputCommand(source, header).ffprobe((err, data) => {
+      clearTimeout(timer)
       if (err) reject(err)
       else resolve(data as ProbeMetadata)
     })
@@ -85,12 +99,21 @@ const getMimeExt = (filePath: string): string => {
   return ext === 'jpg' ? 'jpeg' : ext
 }
 
+const isAttachedPictureStream = (stream?: ProbeStream): boolean => {
+  if (!stream) return false
+  if (stream.disposition?.attached_pic === 1 || stream.disposition?.attached_pic === true) return true
+
+  const codecName = String(stream.codec_name ?? '').toLowerCase()
+  const codecTag = String(stream.codec_tag_string ?? '').toLowerCase()
+  return ['mjpeg', 'png', 'webp'].includes(codecName) || codecTag === 'mp4a'
+}
+
 const detectFileType = (filePath: string, metadata: ProbeMetadata): AnalyzeResult['type'] => {
   const ext = path.extname(filePath).slice(1).toLowerCase()
   const formatName = metadata.format?.format_name || ''
   const duration = parseDuration(metadata.format?.duration)
 
-  const videoStreams = metadata.streams?.filter((s) => s.codec_type === 'video') || []
+  const videoStreams = metadata.streams?.filter((s) => s.codec_type === 'video' && !isAttachedPictureStream(s)) || []
   const audioStreams = metadata.streams?.filter((s) => s.codec_type === 'audio') || []
 
   const isImageByFormat =
@@ -116,10 +139,17 @@ const getFirstFrameToBase64 = (source: string, header?: Record<string, string>):
       .seekInput(0)
       .frames(1)
       .outputOptions(['-f image2', '-vcodec mjpeg', '-vf scale=320:-1'])
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      command.kill('SIGKILL')
+      reject(new Error('ffmpeg screenshot timeout'))
+    }, FFMPEG_TIMEOUT_MS)
 
     command.on('error', (err) => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       log.error('Video screenshot error:', err)
       reject(err)
     })
@@ -127,6 +157,7 @@ const getFirstFrameToBase64 = (source: string, header?: Record<string, string>):
     command.on('end', () => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       resolve(`data:image/jpeg;base64,${Buffer.concat(buffers).toString('base64')}`)
     })
 
@@ -135,6 +166,7 @@ const getFirstFrameToBase64 = (source: string, header?: Record<string, string>):
     stream.on('error', (err: Error) => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       log.error('Video screenshot stream error:', err)
       reject(err)
     })
