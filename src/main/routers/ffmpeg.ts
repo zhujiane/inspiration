@@ -1,15 +1,10 @@
 import { publicProcedure, trpc } from '@shared/routers/trpc'
 import { z } from 'zod'
-import ffmpeg from 'fluent-ffmpeg'
-import ffmpegStatic from 'ffmpeg-static'
 import md5File from 'md5-file'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { captureVideoFrame, runFfprobe } from '../core/ffmpeg'
 import log from '../core/logger'
-
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic)
-}
 
 type ProbeStream = {
   codec_type?: string
@@ -60,46 +55,15 @@ const parseDuration = (raw: unknown): number => {
   return Number.isFinite(num) ? num : 0
 }
 
-const toFfmpegHeaders = (header?: Record<string, string>): string | null => {
-  const normalizedHeader = {
-    'User-Agent': DEFAULT_USER_AGENT,
-    ...(header ?? {})
-  }
-  const lines = Object.entries(normalizedHeader)
-    .filter(([, value]) => typeof value === 'string' && value.trim())
-    .map(([key, value]) => `${key}: ${value.replace(/[\r\n]+/g, ' ').trim()}`)
-    .join('\r\n')
-  return lines ? `${lines}\r\n` : null
-}
-
-const createInputCommand = (source: string, header?: Record<string, string>) => {
-  const command = ffmpeg().input(source)
-  const headerLines = toFfmpegHeaders(header)
-  if (headerLines) {
-    command.inputOptions(['-headers', headerLines])
-  }
-  if (isHttpUrl(source)) {
-    command.inputOptions([
-      '-rw_timeout',
-      String(FFMPEG_TIMEOUT_MS * 1000),
-      '-reconnect',
-      '1',
-      '-reconnect_streamed',
-      '1'
-    ])
-  }
-  return command
-}
-
 const ffprobe = (source: string, header?: Record<string, string>): Promise<ProbeMetadata> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('ffprobe timeout')), FFMPEG_TIMEOUT_MS)
-    createInputCommand(source, header).ffprobe((err, data) => {
-      clearTimeout(timer)
-      if (err) reject(err)
-      else resolve(data as ProbeMetadata)
-    })
-  })
+  runFfprobe(
+    source,
+    {
+      'User-Agent': DEFAULT_USER_AGENT,
+      ...(header ?? {})
+    },
+    FFMPEG_TIMEOUT_MS
+  ) as Promise<ProbeMetadata>
 
 const getMimeExt = (filePath: string): string => {
   const ext = path.extname(filePath).slice(1).toLowerCase() || 'jpeg'
@@ -138,46 +102,14 @@ const detectFileType = (filePath: string, metadata: ProbeMetadata): AnalyzeResul
 }
 
 const getFirstFrameToBase64 = (source: string, header?: Record<string, string>): Promise<string> =>
-  new Promise((resolve, reject) => {
-    let settled = false
-    const buffers: Buffer[] = []
-
-    const command = createInputCommand(source, header)
-      .seekInput(0)
-      .frames(1)
-      .outputOptions(['-f image2', '-vcodec mjpeg', '-vf scale=320:-1'])
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      command.kill('SIGKILL')
-      reject(new Error('ffmpeg screenshot timeout'))
-    }, FFMPEG_TIMEOUT_MS)
-
-    command.on('error', (err) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      log.error('Video screenshot error:', err)
-      reject(err)
-    })
-
-    command.on('end', () => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(`data:image/jpeg;base64,${Buffer.concat(buffers).toString('base64')}`)
-    })
-
-    const stream = command.pipe()
-    stream.on('data', (chunk: Buffer) => buffers.push(chunk))
-    stream.on('error', (err: Error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      log.error('Video screenshot stream error:', err)
-      reject(err)
-    })
-  })
+  captureVideoFrame(
+    source,
+    {
+      'User-Agent': DEFAULT_USER_AGENT,
+      ...(header ?? {})
+    },
+    FFMPEG_TIMEOUT_MS
+  ).then((buffer) => `data:image/jpeg;base64,${buffer.toString('base64')}`)
 
 export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> => {
   const isUrl = isHttpUrl(input.path)

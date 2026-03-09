@@ -15,8 +15,7 @@
 import { publicProcedure, trpc } from '@shared/routers/trpc'
 import { z } from 'zod'
 import { session, BrowserWindow, ipcMain, app } from 'electron'
-import ffmpeg from 'fluent-ffmpeg'
-import ffmpegStatic from 'ffmpeg-static'
+import { mergeMediaTracks, runFfprobe } from '../core/ffmpeg'
 import log from '../core/logger'
 import https from 'https'
 import http from 'http'
@@ -29,10 +28,6 @@ import { db } from '@main/db'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
-
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic)
-}
 
 // ─────────────────────────────────────────────
 //  常量
@@ -720,29 +715,7 @@ function requestWithRedirect(
 // ─────────────────────────────────────────────
 
 function probeUrl(url: string, requestHeaders?: Record<string, string>): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('ffprobe timeout')), 15_000)
-
-    const cmd = ffmpeg()
-    const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders)
-
-    // 将收集到的请求头注入 ffmpeg input_options（解决 403 问题）
-    if (sanitizedRequestHeaders) {
-      const headerStr = Object.entries(sanitizedRequestHeaders)
-        .filter(([k]) => /^(cookie|referer|user-agent|authorization|origin|accept|accept-language)$/i.test(k))
-        .map(([k, v]) => `${k}: ${v}`)
-        .join('\r\n')
-      if (headerStr) {
-        cmd.inputOptions([`-headers`, headerStr])
-      }
-    }
-
-    cmd.input(url).ffprobe((err, data) => {
-      clearTimeout(t)
-      if (err) reject(err)
-      else resolve(data)
-    })
-  })
+  return runFfprobe(url, sanitizeHeaders(requestHeaders), 15_000)
 }
 
 function parseDuration(raw: any): number {
@@ -1404,15 +1377,7 @@ async function addDownloadedResourceToLibrary(
 }
 
 async function mergeAudioVideo(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(videoPath)
-      .input(audioPath)
-      .outputOptions(['-map 0:v:0', '-map 1:a:0', '-c:v copy', '-c:a aac', '-shortest'])
-      .save(outputPath)
-      .on('end', () => resolve())
-      .on('error', (error) => reject(error))
-  })
+  await mergeMediaTracks(videoPath, audioPath, outputPath)
 }
 
 //  tRPC 路由
