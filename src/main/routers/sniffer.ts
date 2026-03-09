@@ -347,15 +347,6 @@ function formatSize(bytes: number): string {
   return `${bytes} B`
 }
 
-function parseDurationText(raw?: string): number {
-  if (!raw) return 0
-  const parts = raw.split(':').map((part) => Number(part))
-  if (parts.some((part) => !Number.isFinite(part))) return 0
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  return 0
-}
-
 function guessExtensionFromContentType(contentType?: string): string {
   const ct = contentType?.toLowerCase().split(';')[0].trim()
   const map: Record<string, string> = {
@@ -1242,6 +1233,12 @@ const snifferDownloadResourceSchema = z.object({
 
 type SnifferDownloadResourceInput = z.infer<typeof snifferDownloadResourceSchema>
 
+const snifferMergeTaskSchema = z.object({
+  id: z.string(),
+  video: snifferDownloadResourceSchema,
+  audio: snifferDownloadResourceSchema
+})
+
 async function safeUnlink(targetPath: string): Promise<void> {
   try {
     await fs.unlink(targetPath)
@@ -1418,40 +1415,6 @@ async function mergeAudioVideo(videoPath: string, audioPath: string, outputPath:
   })
 }
 
-function pairSelectedResources(items: SnifferDownloadResourceInput[]): Array<{
-  video: SnifferDownloadResourceInput
-  audio: SnifferDownloadResourceInput
-}> {
-  const videos = items.filter((item) => item.type === 'video')
-  const audios = items.filter((item) => item.type === 'audio')
-  const usedAudioIds = new Set<string>()
-  const pairs: Array<{ video: SnifferDownloadResourceInput; audio: SnifferDownloadResourceInput }> = []
-
-  for (const video of videos) {
-    const videoDuration = parseDurationText(video.duration)
-    const videoCapturedAt = video.capturedAt ?? 0
-    const candidates = audios
-      .filter((audio) => !usedAudioIds.has(audio.id))
-      .map((audio) => {
-        const audioDuration = parseDurationText(audio.duration)
-        return {
-          audio,
-          durationDiff: Math.abs(videoDuration - audioDuration),
-          tsDiff: Math.abs(videoCapturedAt - (audio.capturedAt ?? 0))
-        }
-      })
-      .filter((item) => item.durationDiff <= 1)
-      .sort((a, b) => a.durationDiff - b.durationDiff || a.tsDiff - b.tsDiff)
-
-    const matched = candidates[0]
-    if (!matched) continue
-    usedAudioIds.add(matched.audio.id)
-    pairs.push({ video, audio: matched.audio })
-  }
-
-  return pairs
-}
-
 //  tRPC 路由
 // ─────────────────────────────────────────────
 
@@ -1482,28 +1445,26 @@ export const snifferRouter = trpc.router({
   }),
 
   mergeSelected: publicProcedure
-    .input(z.object({ resources: z.array(snifferDownloadResourceSchema).min(2) }))
+    .input(z.object({ tasks: z.array(snifferMergeTaskSchema).min(1) }))
     .mutation(async ({ input }) => {
-      const pairs = pairSelectedResources(input.resources)
-      if (pairs.length === 0) {
-        throw new Error('未找到可合并的音视频配对，请检查选中项的时长是否接近')
-      }
-
       const downloadDir = await ensureDownloadDir()
       const maxConcurrent = await getMaxConcurrentDownloads()
-      const mergedResults: Array<{ filePath: string; libraryItem: any }> = new Array(pairs.length)
+      const mergedResults: Array<
+        | { id: string; success: true; filePath: string; libraryItem: any }
+        | { id: string; success: false; errorMessage: string }
+      > = new Array(input.tasks.length)
 
-      await runWithConcurrencyLimit(pairs, maxConcurrent, async (pair, index) => {
+      await runWithConcurrencyLimit(input.tasks, maxConcurrent, async (task, index) => {
         const tempFiles: string[] = []
         try {
           const [videoDownloaded, audioDownloaded] = await Promise.all([
-            downloadRemoteResource(pair.video, `-video-${index + 1}`),
-            downloadRemoteResource(pair.audio, `-audio-${index + 1}`)
+            downloadRemoteResource(task.video, `-video-${index + 1}`),
+            downloadRemoteResource(task.audio, `-audio-${index + 1}`)
           ])
           tempFiles.push(videoDownloaded.filePath, audioDownloaded.filePath)
 
           const outputBaseName = sanitizeFilename(
-            path.basename(pair.video.title, path.extname(pair.video.title)) || `merged-${index + 1}`
+            path.basename(task.video.title, path.extname(task.video.title)) || `merged-${index + 1}`
           )
           const outputName = `${outputBaseName}-merged-${index + 1}.mp4`
           const outputPath = await ensureUniqueFilePath(path.join(downloadDir, outputName))
@@ -1515,21 +1476,31 @@ export const snifferRouter = trpc.router({
             .values({
               name: path.basename(outputPath),
               type: '视频',
-              url: pair.video.url,
+              url: task.video.url,
               localPath: outputPath,
               cover: meta.cover,
-              platform: inferPlatform(pair.video.pageUrl, pair.video.url),
+              platform: inferPlatform(task.video.pageUrl, task.video.url),
               metadata: JSON.stringify(meta),
-              description: `嗅探合并: ${pair.video.url}`
+              description: `嗅探合并: ${task.video.url}`
             })
             .returning()
 
-          mergedResults[index] = { filePath: outputPath, libraryItem }
+          mergedResults[index] = { id: task.id, success: true, filePath: outputPath, libraryItem }
+        } catch (error) {
+          mergedResults[index] = {
+            id: task.id,
+            success: false,
+            errorMessage: (error as Error)?.message || '合并失败，未添加到素材库'
+          }
         } finally {
           await Promise.all(tempFiles.map((tempPath) => safeUnlink(tempPath)))
         }
       })
 
-      return { success: true, mergedCount: mergedResults.length, items: mergedResults }
+      return {
+        success: true,
+        mergedCount: mergedResults.filter((item) => item?.success).length,
+        items: mergedResults
+      }
     })
 })

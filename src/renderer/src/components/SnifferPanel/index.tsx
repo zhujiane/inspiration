@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message, Popconfirm } from 'antd'
+import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message, Popconfirm, Dropdown } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
   MergeCellsOutlined,
+  DownloadOutlined,
   LeftOutlined,
   RightOutlined,
   FilterOutlined,
   RadarChartOutlined,
   LoadingOutlined,
   UndoOutlined,
-  CloseOutlined
+  CloseOutlined,
+  MoreOutlined
 } from '@ant-design/icons'
 import MediaCard from './MediaCard'
 import type { MediaResource } from './MediaCard'
@@ -61,6 +63,9 @@ interface SnifferPanelProps {
   mergeTasks?: BatchActionItem[]
   mergeModalVisible?: boolean
   mergeSubmitting?: boolean
+  downloadTasks?: BatchActionItem[]
+  downloadModalVisible?: boolean
+  downloadSubmitting?: boolean
   onToggle: () => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
@@ -69,6 +74,9 @@ interface SnifferPanelProps {
   onMerge?: () => void
   onMergeCancel?: () => void
   onMergeConfirm?: () => void
+  onBatchDownload?: () => void
+  onBatchDownloadCancel?: () => void
+  onBatchDownloadConfirm?: () => void
   onAdvancedSearch?: () => void
   onAdvancedFiltersChange?: (filters: AdvancedSearchFilters) => void
   onResourceSelect?: (id: string, selected: boolean) => void
@@ -87,6 +95,9 @@ export default function SnifferPanel({
   mergeTasks = [],
   mergeModalVisible = false,
   mergeSubmitting = false,
+  downloadTasks = [],
+  downloadModalVisible = false,
+  downloadSubmitting = false,
   onToggle,
   onSearchChange,
   onInvertSelect,
@@ -94,6 +105,9 @@ export default function SnifferPanel({
   onMerge,
   onMergeCancel,
   onMergeConfirm,
+  onBatchDownload,
+  onBatchDownloadCancel,
+  onBatchDownloadConfirm,
   onAdvancedFiltersChange,
   onResourceSelect,
   onResourceDelete,
@@ -122,6 +136,20 @@ export default function SnifferPanel({
   const discardedCount = stats?.discardedCount ?? 0
   const discardedUrls = stats?.discardedUrls ?? []
   const progressPct = sniffedCount > 0 ? Math.round(((identifiedCount + discardedCount) / sniffedCount) * 100) : 0
+  const batchMenuItems = [
+    {
+      key: 'merge',
+      label: '合并',
+      icon: <MergeCellsOutlined />,
+      onClick: () => onMerge?.()
+    },
+    {
+      key: 'download',
+      label: '下载',
+      icon: <DownloadOutlined />,
+      onClick: () => onBatchDownload?.()
+    }
+  ]
 
   const handleOpenDiscardedUrl = async (url: string) => {
     try {
@@ -230,9 +258,9 @@ export default function SnifferPanel({
                   </button>
                 </Tooltip>
               </Popconfirm>
-              <Tooltip title="合并" mouseEnterDelay={0.5}>
-                <button className="sniffer-panel__toolbar-btn" onClick={onMerge} aria-label="合并">
-                  <MergeCellsOutlined />
+              <Dropdown menu={{ items: batchMenuItems }} trigger={['click']} placement="bottomLeft">
+                <button className="sniffer-panel__toolbar-btn" aria-label="批量操作">
+                  <MoreOutlined />
                   {selectedCount > 0 && (
                     <span
                       style={{
@@ -250,7 +278,7 @@ export default function SnifferPanel({
                     </span>
                   )}
                 </button>
-              </Tooltip>
+              </Dropdown>
             </div>
 
             <div className="sniffer-panel__toolbar-search">
@@ -482,6 +510,19 @@ export default function SnifferPanel({
         emptyText="当前没有可合并的音视频任务"
         onCancel={() => onMergeCancel?.()}
         onConfirm={() => onMergeConfirm?.()}
+      />
+      <BatchActionModal
+        title="下载详情"
+        open={downloadModalVisible}
+        items={downloadTasks}
+        confirmText={downloadTasks.every((item) => item.status === 'success') ? '已完成' : '开始下载'}
+        confirmLoading={downloadSubmitting}
+        confirmDisabled={
+          downloadTasks.length === 0 || downloadSubmitting || downloadTasks.every((item) => item.status === 'success')
+        }
+        emptyText="当前没有可下载的资源"
+        onCancel={() => onBatchDownloadCancel?.()}
+        onConfirm={() => onBatchDownloadConfirm?.()}
       />
     </aside>
   )

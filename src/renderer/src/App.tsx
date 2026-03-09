@@ -26,6 +26,10 @@ interface MergeTask extends BatchActionItem {
   audio: MediaResource
 }
 
+interface DownloadTask extends BatchActionItem {
+  resource: MediaResource
+}
+
 function parseDurationText(value?: string): number {
   if (!value) return 0
   const parts = value
@@ -83,6 +87,19 @@ function createMergeTask(pair: { video: MediaResource; audio: MediaResource }, i
   }
 }
 
+function createDownloadTask(resource: MediaResource, index: number): DownloadTask {
+  return {
+    id: `${resource.id}-${index}`,
+    title: resource.title,
+    coverUrl: resource.thumbnailUrl || (resource.type === 'image' ? resource.url : undefined),
+    metrics: [resource.size, resource.resolution, resource.duration].filter(Boolean) as string[],
+    progress: 0,
+    status: 'pending',
+    statusText: '待下载',
+    resource
+  }
+}
+
 /* ============================================================
    Ant Design Compact Theme Tokens
    ============================================================ */
@@ -131,6 +148,9 @@ function App(): React.JSX.Element {
   const [mergeModalVisible, setMergeModalVisible] = useState(false)
   const [mergeSubmitting, setMergeSubmitting] = useState(false)
   const [mergeTasks, setMergeTasks] = useState<MergeTask[]>([])
+  const [downloadModalVisible, setDownloadModalVisible] = useState(false)
+  const [downloadSubmitting, setDownloadSubmitting] = useState(false)
+  const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
 
   // --- Preview State ---
   const [previewVisible, setPreviewVisible] = useState(false)
@@ -603,12 +623,16 @@ function App(): React.JSX.Element {
     [resources]
   )
 
+  const downloadResource = useCallback(async (resource: MediaResource) => {
+    await trpc.sniffer.download.mutate({ resource: resource as any })
+  }, [])
+
   const handleResourceDownload = useCallback(
     async (id: string) => {
       const res = resources.find((r) => r.id === id)
       if (!res) return
       try {
-        await trpc.sniffer.download.mutate({ resource: res as any })
+        await downloadResource(res)
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
         message.success('下载完成，已添加到素材库')
       } catch (error) {
@@ -616,8 +640,92 @@ function App(): React.JSX.Element {
         message.error((error as Error)?.message || '下载失败，未添加到素材库')
       }
     },
-    [resources]
+    [downloadResource, resources]
   )
+
+  const handleBatchDownloadOpen = useCallback(() => {
+    const selectedResources = resources.filter((r) => r.selected)
+    if (selectedResources.length === 0) {
+      message.warning('请至少选择一个资源')
+      return
+    }
+
+    setDownloadTasks(selectedResources.map((resource, index) => createDownloadTask(resource, index)))
+    setDownloadModalVisible(true)
+  }, [resources])
+
+  const handleBatchDownloadConfirm = useCallback(async () => {
+    const tasksToRun = downloadTasks.filter((task) => task.status !== 'success')
+    if (tasksToRun.length === 0) return
+
+    setDownloadSubmitting(true)
+    const downloadedIds = new Set<string>()
+    let downloadedCount = 0
+
+    try {
+      for (const task of tasksToRun) {
+        setDownloadTasks((prev) =>
+          prev.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  status: 'processing' as BatchActionItemStatus,
+                  statusText: '下载中',
+                  progress: 15,
+                  errorMessage: undefined
+                }
+              : item
+          )
+        )
+
+        try {
+          await downloadResource(task.resource)
+          downloadedIds.add(task.resource.id)
+          downloadedCount += 1
+
+          setDownloadTasks((prev) =>
+            prev.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: 'success' as BatchActionItemStatus,
+                    statusText: '下载完成',
+                    progress: 100
+                  }
+                : item
+            )
+          )
+        } catch (error) {
+          console.error('Sniffer batch download failed:', error)
+          setDownloadTasks((prev) =>
+            prev.map((item) =>
+              item.id === task.id
+                ? {
+                    ...item,
+                    status: 'error' as BatchActionItemStatus,
+                    statusText: '下载失败',
+                    progress: 0,
+                    errorMessage: (error as Error)?.message || '下载失败，未添加到素材库'
+                  }
+                : item
+            )
+          )
+        }
+      }
+
+      if (downloadedCount > 0) {
+        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
+        setResources((prev) => prev.map((item) => (downloadedIds.has(item.id) ? { ...item, selected: false } : item)))
+        message.success(`下载完成，已自动添加 ${downloadedCount} 个素材到素材库`)
+      }
+
+      if (tasksToRun.length !== downloadedCount) {
+        message.error('部分资源下载失败，请查看详情后重试')
+      }
+    } finally {
+      setDownloadSubmitting(false)
+    }
+  }, [downloadResource, downloadTasks])
 
   const handleMergeOpen = useCallback(() => {
     const selectedResources = resources.filter(
@@ -643,60 +751,66 @@ function App(): React.JSX.Element {
     if (tasksToRun.length === 0) return
 
     setMergeSubmitting(true)
+    const taskIdsToRun = new Set(tasksToRun.map((task) => task.id))
+    setMergeTasks((prev) =>
+      prev.map((item) =>
+        taskIdsToRun.has(item.id)
+          ? {
+              ...item,
+              status: 'processing' as BatchActionItemStatus,
+              statusText: '下载并合并中',
+              progress: 15,
+              errorMessage: undefined
+            }
+          : item
+      )
+    )
+
     const mergedIds = new Set<string>()
     let mergedCount = 0
 
     try {
-      for (const task of tasksToRun) {
-        setMergeTasks((prev) =>
-          prev.map((item) =>
-            item.id === task.id
-              ? {
-                  ...item,
-                  status: 'processing' as BatchActionItemStatus,
-                  statusText: '下载并合并中',
-                  progress: 15,
-                  errorMessage: undefined
-                }
-              : item
-          )
-        )
+      const result = await trpc.sniffer.mergeSelected.mutate({
+        tasks: tasksToRun.map((task) => ({
+          id: task.id,
+          video: task.video,
+          audio: task.audio
+        }))
+      })
 
-        try {
-          await trpc.sniffer.mergeSelected.mutate({ resources: [task.video, task.audio] as any })
+      const resultMap = new Map(result.items.map((item) => [item.id, item]))
+      for (const task of tasksToRun) {
+        const taskResult = resultMap.get(task.id)
+        if (taskResult?.success) {
           mergedIds.add(task.video.id)
           mergedIds.add(task.audio.id)
           mergedCount += 1
-
-          setMergeTasks((prev) =>
-            prev.map((item) =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status: 'success' as BatchActionItemStatus,
-                    statusText: '合并完成',
-                    progress: 100
-                  }
-                : item
-            )
-          )
-        } catch (error) {
-          console.error('Sniffer merge failed:', error)
-          setMergeTasks((prev) =>
-            prev.map((item) =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status: 'error' as BatchActionItemStatus,
-                    statusText: '合并失败',
-                    progress: 0,
-                    errorMessage: (error as Error)?.message || '合并失败，未添加到素材库'
-                  }
-                : item
-            )
-          )
+        } else {
+          console.error('Sniffer merge failed:', taskResult?.errorMessage || 'Unknown merge error')
         }
       }
+
+      setMergeTasks((prev) =>
+        prev.map((item) => {
+          if (!taskIdsToRun.has(item.id)) return item
+          const taskResult = resultMap.get(item.id)
+          if (taskResult?.success) {
+            return {
+              ...item,
+              status: 'success' as BatchActionItemStatus,
+              statusText: '合并完成',
+              progress: 100
+            }
+          }
+          return {
+            ...item,
+            status: 'error' as BatchActionItemStatus,
+            statusText: '合并失败',
+            progress: 0,
+            errorMessage: taskResult?.errorMessage || '合并失败，未添加到素材库'
+          }
+        })
+      )
 
       if (mergedCount > 0) {
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
@@ -717,6 +831,22 @@ function App(): React.JSX.Element {
       if (tasksToRun.length !== mergedCount) {
         message.error('部分任务合并失败，请查看详情后重试')
       }
+    } catch (error) {
+      console.error('Sniffer merge failed:', error)
+      setMergeTasks((prev) =>
+        prev.map((item) =>
+          taskIdsToRun.has(item.id)
+            ? {
+                ...item,
+                status: 'error' as BatchActionItemStatus,
+                statusText: '合并失败',
+                progress: 0,
+                errorMessage: (error as Error)?.message || '合并失败，未添加到素材库'
+              }
+            : item
+        )
+      )
+      message.error((error as Error)?.message || '合并失败，未添加到素材库')
     } finally {
       setMergeSubmitting(false)
     }
@@ -831,6 +961,9 @@ function App(): React.JSX.Element {
                 mergeTasks={mergeTasks}
                 mergeModalVisible={mergeModalVisible}
                 mergeSubmitting={mergeSubmitting}
+                downloadTasks={downloadTasks}
+                downloadModalVisible={downloadModalVisible}
+                downloadSubmitting={downloadSubmitting}
                 onToggle={() => setSnifferCollapsed((p) => !p)}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
@@ -839,6 +972,9 @@ function App(): React.JSX.Element {
                 onMerge={handleMergeOpen}
                 onMergeCancel={() => !mergeSubmitting && setMergeModalVisible(false)}
                 onMergeConfirm={handleMergeConfirm}
+                onBatchDownload={handleBatchDownloadOpen}
+                onBatchDownloadCancel={() => !downloadSubmitting && setDownloadModalVisible(false)}
+                onBatchDownloadConfirm={handleBatchDownloadConfirm}
                 onAdvancedFiltersChange={setAdvancedFilters}
                 onResourceSelect={handleResourceSelect}
                 onResourceDelete={handleResourceDelete}
