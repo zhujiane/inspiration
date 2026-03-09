@@ -6,6 +6,7 @@ import { db } from '@main/db'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
+import log from '../logger'
 import { mergeMediaTracks } from '../ffmpeg'
 import { analyzeMedia } from '../ffmpeg'
 import { headRequest, requestWithRedirect } from './http'
@@ -28,6 +29,80 @@ import type {
 } from '../../types/sniffer-types'
 
 const DOWNLOAD_TIMEOUT_MS = 60_000
+
+function parseDurationText(raw?: string): number | undefined {
+  if (!raw) return undefined
+  const parts = raw
+    .trim()
+    .split(':')
+    .map((p) => Number(p))
+  if (parts.length < 2 || parts.length > 3) return undefined
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return undefined
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  return parts[0] * 3600 + parts[1] * 60 + parts[2]
+}
+
+function parseResolutionText(raw?: string): { width?: number; height?: number } {
+  if (!raw) return {}
+  const match = raw.match(/(\d+)\s*[x×]\s*(\d+)/i)
+  if (!match) return {}
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return {}
+  return { width, height }
+}
+
+function buildLocalPreviewProxyUrl(localPath: string): string {
+  const normalized = localPath.replace(/\\/g, '/')
+  const fileUrl = normalized.startsWith('file://') ? normalized : `file:///${normalized}`
+  const search = new URLSearchParams()
+  search.set('url', fileUrl)
+  return `sniffer-media://preview?${search.toString()}`
+}
+
+async function buildLibraryMeta(
+  resource: SnifferDownloadResourceInput,
+  localPath: string,
+  sourceUrl: string
+): Promise<{ meta: any; cover?: string }> {
+  const stat = await fs.stat(localPath).catch(() => null)
+  const baseSize = stat?.size ?? 0
+  const duration = parseDurationText(resource.duration)
+  const { width, height } = parseResolutionText(resource.resolution)
+
+  // 默认优先复用嗅探阶段/HEAD 阶段已有数据，避免对本地文件做 ffprobe + md5（很重）
+  const baseMeta: any = {
+    type: resource.type,
+    size: baseSize,
+    width,
+    height,
+    duration
+  }
+
+  const cover = resource.type === 'image' ? buildLocalPreviewProxyUrl(localPath) : resource.thumbnailUrl || undefined
+
+  // 缺关键字段时，尽量用“远端 URL + headers”回退探测（避免本地路径/大文件 md5 的问题）
+  const shouldFallbackAnalyze =
+    resource.type !== 'image' && (!cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height))
+
+  if (shouldFallbackAnalyze) {
+    try {
+      const analyzed = await analyzeMedia({ path: sourceUrl, header: resource.requestHeaders })
+      const merged = {
+        ...analyzed,
+        ...baseMeta,
+        size: baseSize || analyzed.size,
+        cover: cover || analyzed.cover
+      }
+      return { meta: merged, cover: cover || analyzed.cover }
+    } catch (error) {
+      log.debug(`[Sniffer] Remote analyze skipped/failed (${sourceUrl}): ${String(error)}`)
+    }
+  }
+
+  baseMeta.cover = cover
+  return { meta: baseMeta, cover }
+}
 
 async function withRetry<T>(fn: () => Promise<T>, options?: { retries?: number; delayMs?: number }): Promise<T> {
   const retries = options?.retries ?? 2
@@ -274,7 +349,7 @@ export async function addDownloadedResourceToLibrary(
   localPath: string,
   sourceUrl: string
 ): Promise<any> {
-  const meta = await analyzeMedia({ path: localPath })
+  const { meta, cover } = await buildLibraryMeta(resource, localPath, sourceUrl)
   const created = await db
     .insert(resources)
     .values({
@@ -282,7 +357,7 @@ export async function addDownloadedResourceToLibrary(
       type: mapResourceType(resource.type),
       url: sourceUrl,
       localPath,
-      cover: meta.cover,
+      cover,
       platform: inferPlatform(resource.pageUrl, sourceUrl),
       metadata: JSON.stringify(meta),
       description: `嗅探下载: ${resource.pageUrl || sourceUrl}`
@@ -347,8 +422,38 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
       emitProgress({ phase: 'merge', progress: 85, message: '开始合并音视频' })
       await mergeAudioVideo(videoDownloaded.filePath, audioDownloaded.filePath, outputPath)
 
-      emitProgress({ phase: 'analyze', progress: 90, message: '分析媒体信息' })
-      const meta = await analyzeMedia({ path: outputPath })
+      emitProgress({ phase: 'analyze', progress: 90, message: '整理媒体信息' })
+
+      const outputStat = await fs.stat(outputPath).catch(() => null)
+      const baseSize = outputStat?.size ?? 0
+      const duration = parseDurationText(task.video.duration)
+      const { width, height } = parseResolutionText(task.video.resolution)
+      const baseMeta: any = {
+        type: 'video',
+        size: baseSize,
+        width,
+        height,
+        duration
+      }
+
+      let cover = task.video.thumbnailUrl
+      let meta: any = { ...baseMeta, cover }
+      const shouldFallbackAnalyze = !cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height)
+      if (shouldFallbackAnalyze) {
+        try {
+          const analyzed = await analyzeMedia({ path: task.video.url, header: task.video.requestHeaders })
+          cover = cover || analyzed.cover
+          meta = {
+            ...analyzed,
+            ...baseMeta,
+            size: baseSize || analyzed.size,
+            cover
+          }
+        } catch (error) {
+          log.debug(`[Sniffer] Remote analyze skipped/failed (${task.video.url}): ${String(error)}`)
+        }
+      }
+
       emitProgress({ phase: 'library', progress: 95, message: '写入素材库' })
       const [libraryItem] = await db
         .insert(resources)
@@ -357,7 +462,7 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
           type: '视频',
           url: task.video.url,
           localPath: outputPath,
-          cover: meta.cover,
+          cover,
           platform: inferPlatform(task.video.pageUrl, task.video.url),
           metadata: JSON.stringify(meta),
           description: `嗅探合并: ${task.video.url}`

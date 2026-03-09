@@ -14,6 +14,19 @@ export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw)
     u.hash = ''
+    const hostname = u.hostname.toLowerCase()
+
+    // 针对 B 站视频分发域名做归一化，避免同一资源在不同节点、多种签名参数下被重复捕获
+    // 典型示例：
+    // - cn-hbyc-ct-01-05.bilivideo.com/upgcxcode/.../36544579288-1-100026.m4s?...
+    // - cn-hbyc-ct-01-01.bilivideo.com/upgcxcode/.../36544579288-1-100026.m4s?...
+    // 逻辑：
+    // - 只保留路径（区分 audio/video：100024.m4s / 100026.m4s）
+    // - 统一为 bilivideo.com 根域，去掉所有查询参数（签名、带宽、cdnid 等）
+    if (hostname.endsWith('.bilivideo.com')) {
+      return `https://bilivideo.com${u.pathname}`
+    }
+
     return u.toString()
   } catch {
     return raw
@@ -159,6 +172,45 @@ export function sanitizeHeaders(headers?: Record<string, string>): Record<string
     if (KEEP.includes(k.toLowerCase())) result[k] = v
   }
   return Object.keys(result).length ? result : undefined
+}
+
+export function urlExt(url: string): string {
+  try {
+    const pathname = new URL(url).pathname
+    return (pathname.split('.').pop() || '').toLowerCase()
+  } catch {
+    const clean = url.split('#')[0].split('?')[0]
+    return (clean.split('.').pop() || '').toLowerCase()
+  }
+}
+
+/**
+ * 是否为流媒体清单（通常值得保留，但不应该对它跑 ffprobe，否则会很慢甚至被拉去解析分片）
+ */
+export function isLikelyStreamManifestUrl(url: string): boolean {
+  const ext = urlExt(url)
+  if (ext === 'm3u8' || ext === 'mpd') return true
+  const lower = url.toLowerCase()
+  if (lower.includes('manifest') && (lower.includes('dash') || lower.includes('mpd'))) return true
+  if (lower.includes('master.m3u8') || lower.includes('index.m3u8')) return true
+  return false
+}
+
+/**
+ * 是否为流媒体分片（数量巨大、对用户几乎无意义，且会把 ffprobe 队列拖到“分析中很久”）
+ */
+export function isLikelyStreamSegmentUrl(url: string): boolean {
+  const ext = urlExt(url)
+  if (ext === 'm4s') return true
+  if (ext !== 'ts') return false
+
+  const lower = url.toLowerCase()
+  // 常见分片/切片命名
+  if (/(^|[?&#/])(seg|segment|chunk|frag|fragment|piece)([=?&#/]|$)/.test(lower)) return true
+  if (/\/(hls|dash|m3u8|vod|live|stream)\//.test(lower)) return true
+  if (/\b(init|index|segment)\d*\.(ts)\b/.test(lower)) return true
+  if (/[-_]\d{3,}(\.ts)(?:[?#]|$)/.test(lower)) return true
+  return false
 }
 
 export function mediaTypeFromContentType(ct: string): MediaType {

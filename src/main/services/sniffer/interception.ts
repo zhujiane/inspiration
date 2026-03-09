@@ -2,7 +2,7 @@ import { session } from 'electron'
 import log from '../logger'
 import { MIN_IMAGE_SIZE } from './constants'
 import { broadcastStats, emitResource } from './broadcast'
-import { headRequest } from './http'
+import { headRequest, resolveContentLength } from './http'
 import { shouldProbeConfirmedMedia } from './ffprobe'
 import { enqueueForFfprobe } from './queue'
 import { listenedPartitions, snifferStates } from './runtime'
@@ -20,6 +20,7 @@ import {
   flattenHeaders,
   getHeaderValue,
   isAmbiguousContentType,
+  isLikelyStreamSegmentUrl,
   mediaTypeFromContentType,
   mightBeMediaByUrl,
   normalizeUrl,
@@ -36,10 +37,16 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
 
   const url = normalizeUrl(details.url)
   if (shouldSkip(url)) return
+  if (state.seenUrls.has(url)) return
+  // HLS/DASH 分片数量巨大，且对用户几乎无意义；跳过可显著减少“分析中很久”的情况
+  if (isLikelyStreamSegmentUrl(url)) {
+    rememberSeenUrl(state, url)
+    return
+  }
 
   const flatResHeaders = flattenHeaders(details.responseHeaders ?? {})
   const ct = flatResHeaders['content-type'] || ''
-  const contentLength = Number.parseInt(flatResHeaders['content-length'] || '0', 10) || 0
+  const contentLength = resolveContentLength(flatResHeaders)
 
   const requestMeta = consumeRequestMetaById(state, (details as { requestId?: string }).requestId)
   const existingMeta = state.requestMetaCache.get(url)
@@ -57,8 +64,6 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
     ts: Date.now()
   }
   cacheRequestMeta(state, url, meta)
-
-  if (state.seenUrls.has(url)) return
 
   const mediaType = mediaTypeFromContentType(ct)
   if (mediaType) {
@@ -150,6 +155,10 @@ export function handleDomUrls(partition: string, urls: string[]): void {
     const url = normalizeUrl(raw)
     if (shouldSkip(url)) continue
     if (state.seenUrls.has(url)) continue
+    if (isLikelyStreamSegmentUrl(url)) {
+      rememberSeenUrl(state, url)
+      continue
+    }
     if (state.pendingHeadUrls.has(url)) continue
 
     state.pendingHeadUrls.add(url)

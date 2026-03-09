@@ -21,6 +21,9 @@ const snifferDownloadResourceSchema = z.object({
   pageUrl: z.string().optional(),
   contentType: z.string().optional(),
   duration: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
+  resolution: z.string().optional(),
+  size: z.string().optional(),
   requestHeaders: z.record(z.string(), z.string()).optional()
 })
 

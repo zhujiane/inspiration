@@ -20,7 +20,7 @@ function parseContentRangeTotal(contentRange?: string): number {
   return Number.isFinite(total) ? total : 0
 }
 
-function resolveContentLength(headers: Record<string, string>): number {
+export function resolveContentLength(headers: Record<string, string>): number {
   const contentRangeTotal = parseContentRangeTotal(headers['content-range'])
   if (contentRangeTotal > 0) return contentRangeTotal
 

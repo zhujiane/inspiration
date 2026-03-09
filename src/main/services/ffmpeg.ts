@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
+import { createHash } from 'crypto'
 import ffmpegStatic from 'ffmpeg-static'
 import ffprobeStatic from 'ffprobe-static'
-import md5File from 'md5-file'
 import { promises as fs } from 'fs'
 import path from 'path'
 import log from './logger'
@@ -15,6 +15,7 @@ type SpawnResult = {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
+const FINGERPRINT_CHUNK_BYTES = 1024 * 1024
 
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
 
@@ -179,6 +180,18 @@ export const mergeMediaTracks = async (
   outputPath: string,
   timeoutMs = 120_000
 ): Promise<void> => {
+  let audioCodec = ''
+  try {
+    const meta = await runFfprobe(audioPath, undefined, Math.min(timeoutMs, 15_000))
+    const stream = meta?.streams?.find((s: any) => s?.codec_type === 'audio')
+    audioCodec = String(stream?.codec_name ?? '').toLowerCase()
+  } catch (error) {
+    log.debug(`[FFmpeg] ffprobe audio failed, will fallback to aac encode: ${String(error)}`)
+  }
+
+  const shouldCopyAudio = audioCodec === 'aac'
+  log.debug('[FFmpeg] mergeMediaTracks', { audioCodec, shouldCopyAudio, videoPath, audioPath, outputPath })
+
   const args = [
     '-y',
     '-v',
@@ -194,7 +207,7 @@ export const mergeMediaTracks = async (
     '-c:v',
     'copy',
     '-c:a',
-    'aac',
+    shouldCopyAudio ? 'copy' : 'aac',
     '-shortest',
     outputPath
   ]
@@ -205,6 +218,45 @@ const parseDuration = (raw: unknown): number => {
   if (!raw || raw === 'N/A') return 0
   const num = Number(raw)
   return Number.isFinite(num) ? num : 0
+}
+
+const md5 = (input: string | Buffer): string => createHash('md5').update(input).digest('hex')
+
+const md5FileChunk = async (filePath: string, start: number, length: number): Promise<string> => {
+  if (length <= 0) return md5('')
+  const handle = await fs.open(filePath, 'r')
+  try {
+    const buf = Buffer.allocUnsafe(length)
+    const { bytesRead } = await handle.read(buf, 0, length, start)
+    return md5(bytesRead === length ? buf : buf.subarray(0, bytesRead))
+  } finally {
+    await handle.close()
+  }
+}
+
+const buildFileFingerprint = async (
+  filePath: string,
+  info: { size: number; duration: number; width: number; height: number }
+): Promise<string> => {
+  const size = Math.max(0, Math.floor(info.size || 0))
+  const duration = Number.isFinite(info.duration) ? info.duration : 0
+  const width = Math.max(0, Math.floor(info.width || 0))
+  const height = Math.max(0, Math.floor(info.height || 0))
+
+  const firstLen = Math.min(FINGERPRINT_CHUNK_BYTES, size)
+  const firstHash = await md5FileChunk(filePath, 0, firstLen)
+
+  const lastHash =
+    size <= FINGERPRINT_CHUNK_BYTES
+      ? firstHash
+      : await md5FileChunk(
+          filePath,
+          Math.max(0, size - FINGERPRINT_CHUNK_BYTES),
+          Math.min(FINGERPRINT_CHUNK_BYTES, size)
+        )
+
+  // fingerprint = hash(fileSize + duration + width + height + hash(first 1MB) + hash(last 1MB))
+  return md5(`${size}|${duration}|${width}|${height}|${firstHash}|${lastHash}`)
 }
 
 const ffprobe = (source: string, header?: Record<string, string>): Promise<ProbeMetadata> =>
@@ -274,22 +326,37 @@ export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> 
   }
 
   const metadata = await ffprobe(input.path, input.header)
-  const [stats, md5] = isUrl ? [{ size: 0 }, undefined] : await Promise.all([fs.stat(input.path), md5File(input.path)])
+  const stats = isUrl ? { size: 0 } : await fs.stat(input.path)
 
   const videoStream = metadata.streams?.find((s) => s.codec_type === 'video')
   const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
   const fileType = detectFileType(input.path, metadata)
+  const duration = parseDuration(metadata.format?.duration)
+
+  let fingerprint: string | undefined
+  if (!isUrl) {
+    try {
+      fingerprint = await buildFileFingerprint(input.path, {
+        size: stats.size,
+        duration,
+        width: videoStream?.width ?? 0,
+        height: videoStream?.height ?? 0
+      })
+    } catch (err) {
+      log.error('Failed to build fingerprint:', err)
+    }
+  }
 
   const result: AnalyzeResult = {
     type: fileType,
     size: stats.size,
     width: videoStream?.width,
     height: videoStream?.height,
-    duration: metadata.format?.duration ? Number(metadata.format.duration) : undefined,
+    duration: duration || undefined,
     format: metadata.format?.format_name,
     videoCodec: videoStream?.codec_name,
     audioCodec: audioStream?.codec_name,
-    md5
+    md5: fingerprint
   }
 
   if (fileType === 'image') {

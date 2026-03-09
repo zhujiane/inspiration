@@ -1,6 +1,13 @@
 import { runFfprobe } from '../ffmpeg'
 import { IMAGE_FFPROBE_FORMATS } from './constants'
-import { formatDuration, formatSize, sanitizeHeaders, titleFromUrl } from './utils'
+import {
+  formatDuration,
+  formatSize,
+  isLikelyStreamManifestUrl,
+  isLikelyStreamSegmentUrl,
+  sanitizeHeaders,
+  titleFromUrl
+} from './utils'
 import type { RequestMeta, SnifferResource, SnifferState } from '../../types/sniffer-types'
 
 function probeUrl(url: string, requestHeaders?: Record<string, string>): Promise<any> {
@@ -54,6 +61,27 @@ function fallbackAudioResource(url: string, meta?: RequestMeta, durationSecs?: n
 export async function analyzeByFfprobe(url: string, state: SnifferState): Promise<SnifferResource | null> {
   const meta = state.requestMetaCache.get(url)
   const requestHeaders = meta?.requestHeaders
+
+  // 1) 分片 URL：直接忽略（避免 ffprobe 队列被海量分片拖垮）
+  if (isLikelyStreamSegmentUrl(url)) return null
+
+  // 2) 清单 URL：直接识别为视频资源，不跑 ffprobe（ffprobe 解析清单往往会非常慢）
+  if (isLikelyStreamManifestUrl(url)) {
+    const bytes = meta?.contentLength || 0
+    return {
+      id: `sniff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type: 'video',
+      url,
+      title: titleFromUrl(url),
+      capturedAt: Date.now(),
+      pageUrl: meta?.pageUrl,
+      contentType: meta?.contentType,
+      size: bytes ? formatSize(bytes) : undefined,
+      requestHeaders: sanitizeHeaders(requestHeaders),
+      confidence: 'probable',
+      source: 'ffprobe'
+    }
+  }
 
   try {
     const metadata = await probeUrl(url, requestHeaders)

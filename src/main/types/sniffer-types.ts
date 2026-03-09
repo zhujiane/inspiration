@@ -70,6 +70,20 @@ export type SnifferDownloadResourceInput = {
   pageUrl?: string
   contentType?: string
   duration?: string
+  /**
+   * 预览封面（通常是 dataURL 或可直接访问的图片 URL）
+   * - 对视频：嗅探阶段可能已通过 ffprobe/截图拿到
+   * - 对图片：可直接用 resource.url 或 thumbnailUrl
+   */
+  thumbnailUrl?: string
+  /**
+   * 分辨率文本（例如 "1920×1080" 或 "1920x1080"）
+   */
+  resolution?: string
+  /**
+   * 尺寸文本（例如 "12.3 MB"），非必需
+   */
+  size?: string
   requestHeaders?: Record<string, string>
 }
 

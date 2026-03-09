@@ -36,7 +36,7 @@ export async function downloadToLibrary(resource: SnifferDownloadResourceInput):
   emitProgress({ phase: 'download', progress: 15, message: '开始下载' })
 
   const { filePath, finalUrl } = await downloadRemoteResource(resource)
-  emitProgress({ phase: 'download', progress: 50, message: '下载完成，开始分析' })
+  emitProgress({ phase: 'download', progress: 50, message: '下载完成，准备入库' })
 
   const libraryItem = await addDownloadedResourceToLibrary(resource, filePath, finalUrl)
   emitProgress({ phase: 'library', progress: 100, message: '已添加到素材库' })
