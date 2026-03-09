@@ -476,7 +476,9 @@ export default function SnifferPanel({
         items={mergeTasks}
         confirmText={mergeTasks.every((item) => item.status === 'success') ? '已完成' : '开始合并'}
         confirmLoading={mergeSubmitting}
-        confirmDisabled={mergeTasks.length === 0 || mergeSubmitting || mergeTasks.every((item) => item.status === 'success')}
+        confirmDisabled={
+          mergeTasks.length === 0 || mergeSubmitting || mergeTasks.every((item) => item.status === 'success')
+        }
         emptyText="当前没有可合并的音视频任务"
         onCancel={() => onMergeCancel?.()}
         onConfirm={() => onMergeConfirm?.()}

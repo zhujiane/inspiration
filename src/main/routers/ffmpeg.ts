@@ -79,7 +79,14 @@ const createInputCommand = (source: string, header?: Record<string, string>) => 
     command.inputOptions(['-headers', headerLines])
   }
   if (isHttpUrl(source)) {
-    command.inputOptions(['-rw_timeout', String(FFMPEG_TIMEOUT_MS * 1000), '-reconnect', '1', '-reconnect_streamed', '1'])
+    command.inputOptions([
+      '-rw_timeout',
+      String(FFMPEG_TIMEOUT_MS * 1000),
+      '-reconnect',
+      '1',
+      '-reconnect_streamed',
+      '1'
+    ])
   }
   return command
 }
