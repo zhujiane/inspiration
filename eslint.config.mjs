@@ -48,6 +48,7 @@ export default defineConfig(
           ignore: ['partition', 'allowpopups', 'webpreferences']
         }
       ],
+
       'newline-per-chained-call': 'off',
       'no-control-regex': 'off',
       'no-empty': 'off',

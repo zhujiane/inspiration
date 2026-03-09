@@ -3,8 +3,8 @@ import { z } from 'zod'
 import md5File from 'md5-file'
 import { promises as fs } from 'fs'
 import path from 'path'
-import { captureVideoFrame, runFfprobe } from '../core/ffmpeg'
-import log from '../core/logger'
+import { captureVideoFrame, runFfprobe } from '../services/ffmpeg'
+import log from '../services/logger'
 
 type ProbeStream = {
   codec_type?: string

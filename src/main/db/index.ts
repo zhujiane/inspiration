@@ -4,7 +4,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import * as schema from '@shared/db/index'
-import log from '../core/logger'
+import log from '../services/logger'
 
 // 根据环境选择数据库路径
 // dev: 使用项目根目录

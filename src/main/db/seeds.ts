@@ -4,7 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { sql } from 'drizzle-orm'
 import { existsSync } from 'fs'
 import { db } from './index'
-import log from '../core/logger'
+import log from '../services/logger'
 
 const toIdempotentInsert = (statement: string): string =>
   statement.replace(/^INSERT\s+INTO\s+/i, 'INSERT OR IGNORE INTO ')
@@ -20,7 +20,7 @@ const runSeedSqlList = async (label: string, statements: string[]): Promise<void
 export async function initDb(): Promise<void> {
   try {
     // 迁移文件路径（兼容 dev/prod）
-    const migrationsFolder = is.dev ? join(process.cwd(), 'src/main/migrations') : join(__dirname, 'migrations')
+    const migrationsFolder = is.dev ? join(process.cwd(), 'src/main/db/migrations') : join(__dirname, 'db/migrations')
     log.info(`Running migrations from: ${migrationsFolder}`)
 
     // 检查迁移目录是否存在

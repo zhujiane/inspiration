@@ -11,7 +11,7 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
-  - out/main/migrations/**
+  - out/main/db/migrations/**
 win:
   executableName: inspiration
 nsis:

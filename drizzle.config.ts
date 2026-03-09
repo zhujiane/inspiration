@@ -10,7 +10,7 @@ const getDbPath = (): string => {
 
 export default defineConfig({
   schema: './src/shared/db/*.ts',
-  out: './src/main/migrations',
+  out: './src/main/db/migrations',
   dialect: 'sqlite',
   dbCredentials: {
     url: `file:${getDbPath()}`

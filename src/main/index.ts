@@ -3,9 +3,9 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDb } from './db'
-import { setupTRPC } from './core/trpc'
-import log, { initLogger } from './core/logger'
-import { registerBlockedSchemes, setupWebContentPolicies } from './core/protocol'
+import { setupTRPC } from './services/trpc'
+import log, { initLogger } from './services/logger'
+import { registerBlockedSchemes, setupWebContentPolicies } from './services/protocol'
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
