@@ -41,10 +41,7 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml'
 }
 
-const parseRangeHeader = (
-  rangeHeader: string | null,
-  fileSize: number
-): { start: number; end: number } | null => {
+const parseRangeHeader = (rangeHeader: string | null, fileSize: number): { start: number; end: number } | null => {
   if (!rangeHeader) return null
   const match = rangeHeader.match(/bytes=(\d*)-(\d*)/i)
   if (!match) return null
