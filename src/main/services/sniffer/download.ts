@@ -20,7 +20,35 @@ import {
   sanitizeHeaders,
   titleFromUrl
 } from './utils'
-import type { SnifferDownloadResourceInput, SnifferMergeTaskInput } from '../../types/sniffer-types'
+import { broadcastDownloadProgress } from './broadcast'
+import type {
+  SnifferDownloadProgressPayload,
+  SnifferDownloadResourceInput,
+  SnifferMergeTaskInput
+} from '../../types/sniffer-types'
+
+const DOWNLOAD_TIMEOUT_MS = 60_000
+
+async function withRetry<T>(fn: () => Promise<T>, options?: { retries?: number; delayMs?: number }): Promise<T> {
+  const retries = options?.retries ?? 2
+  const delayMs = options?.delayMs ?? 1_000
+
+  let attempt = 0
+  // 简单重试：网络抖动时提升成功率
+  for (;;) {
+    try {
+      return await fn()
+    } catch (error) {
+      attempt++
+      if (attempt > retries) {
+        throw error
+      }
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+    }
+  }
+}
 
 async function getConfigValue(key: string): Promise<string> {
   const [config] = await db.select().from(configs).where(eq(configs.key, key)).limit(1)
@@ -92,7 +120,10 @@ async function singleStreamDownload(url: string, headers: Record<string, string>
   const tempPath = `${targetPath}.part`
   await safeUnlink(tempPath)
   try {
-    const { response } = await requestWithRedirect(url, { method: 'GET', headers, timeout: 30_000 })
+    const { response } = await withRetry(
+      () => requestWithRedirect(url, { method: 'GET', headers, timeout: DOWNLOAD_TIMEOUT_MS }),
+      { retries: 2, delayMs: 1_000 }
+    )
     await pipeline(response, createWriteStream(tempPath))
     await fs.rename(tempPath, targetPath)
   } catch (error) {
@@ -143,14 +174,18 @@ async function chunkedDownload(
         const end = Math.min(contentLength - 1, start + chunkSize - 1)
         const partPath = path.join(tempDir, `part-${index}.tmp`)
         partPaths[index] = partPath
-        const { response } = await requestWithRedirect(url, {
-          method: 'GET',
-          headers: {
-            ...headers,
-            Range: `bytes=${start}-${end}`
-          },
-          timeout: 30_000
-        })
+        const { response } = await withRetry(
+          () =>
+            requestWithRedirect(url, {
+              method: 'GET',
+              headers: {
+                ...headers,
+                Range: `bytes=${start}-${end}`
+              },
+              timeout: DOWNLOAD_TIMEOUT_MS
+            }),
+          { retries: 2, delayMs: 1_000 }
+        )
         await pipeline(response, createWriteStream(partPath))
       })
     )
@@ -278,10 +313,30 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
   await runWithConcurrencyLimit(tasks, maxConcurrent, async (task, index) => {
     const tempFiles: string[] = []
     try {
-      const [videoDownloaded, audioDownloaded] = await Promise.all([
-        downloadRemoteResource(task.video, `-video-${index + 1}`),
-        downloadRemoteResource(task.audio, `-audio-${index + 1}`)
-      ])
+      const emitProgress = (partial: Partial<SnifferDownloadProgressPayload>) => {
+        broadcastDownloadProgress({
+          type: 'merge',
+          id: task.id,
+          phase: partial.phase ?? 'download',
+          progress: partial.progress ?? 0,
+          message: partial.message
+        })
+      }
+
+      // 下载阶段：0-80
+      emitProgress({ phase: 'download', progress: 5, message: '准备下载' })
+
+      const videoPromise = downloadRemoteResource(task.video, `-video-${index + 1}`).then((result) => {
+        emitProgress({ phase: 'video', progress: 40, message: '视频下载完成' })
+        return result
+      })
+
+      const audioPromise = downloadRemoteResource(task.audio, `-audio-${index + 1}`).then((result) => {
+        emitProgress({ phase: 'audio', progress: 80, message: '音频下载完成' })
+        return result
+      })
+
+      const [videoDownloaded, audioDownloaded] = await Promise.all([videoPromise, audioPromise])
       tempFiles.push(videoDownloaded.filePath, audioDownloaded.filePath)
 
       const outputBaseName = sanitizeFilename(
@@ -289,9 +344,12 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
       )
       const outputName = `${outputBaseName}-merged-${index + 1}.mp4`
       const outputPath = await ensureUniqueFilePath(path.join(downloadDir, outputName))
+      emitProgress({ phase: 'merge', progress: 85, message: '开始合并音视频' })
       await mergeAudioVideo(videoDownloaded.filePath, audioDownloaded.filePath, outputPath)
 
+      emitProgress({ phase: 'analyze', progress: 90, message: '分析媒体信息' })
       const meta = await analyzeMedia({ path: outputPath })
+      emitProgress({ phase: 'library', progress: 95, message: '写入素材库' })
       const [libraryItem] = await db
         .insert(resources)
         .values({
@@ -307,6 +365,7 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
         .returning()
 
       mergedResults[index] = { id: task.id, success: true, filePath: outputPath, libraryItem }
+      emitProgress({ phase: 'library', progress: 100, message: '合并完成' })
     } catch (error) {
       mergedResults[index] = {
         id: task.id,

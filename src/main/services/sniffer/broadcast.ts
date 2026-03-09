@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import log from '../logger'
 import { analyzeMedia } from '../ffmpeg'
 import { formatDuration } from './utils'
-import type { SnifferResource, SnifferStatsPayload } from '../../types/sniffer-types'
+import type { SnifferDownloadProgressPayload, SnifferResource, SnifferStatsPayload } from '../../types/sniffer-types'
 
 export function broadcast(channel: string, payload: any): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -16,6 +16,10 @@ export function broadcastStats(payload: SnifferStatsPayload): void {
 
 export function broadcastResource(partition: string, resource: SnifferResource): void {
   broadcast('sniffer:resource', { partition, resource })
+}
+
+export function broadcastDownloadProgress(payload: SnifferDownloadProgressPayload): void {
+  broadcast('sniffer:download-progress', payload)
 }
 
 async function enrichResourceMetadata(resource: SnifferResource): Promise<SnifferResource> {

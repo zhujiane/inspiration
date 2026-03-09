@@ -23,6 +23,12 @@ const snifferBridge = {
     const handler = (_: any, data: any) => cb(data)
     ipcRenderer.on('sniffer:stats', handler)
     return () => ipcRenderer.removeListener('sniffer:stats', handler)
+  },
+  // Main → Renderer: listen for download / merge progress updates
+  onDownloadProgress: (cb: (data: any) => void) => {
+    const handler = (_: any, data: any) => cb(data)
+    ipcRenderer.on('sniffer:download-progress', handler)
+    return () => ipcRenderer.removeListener('sniffer:download-progress', handler)
   }
 }
 

@@ -213,9 +213,65 @@ function App(): React.JSX.Element {
       })
     })
 
+    const unsubDownloadProgress = bridge.onDownloadProgress((payload: any) => {
+      if (!payload || typeof payload !== 'object') return
+      const { type, id, progress, phase, message } = payload
+      const safeProgress = typeof progress === 'number' ? Math.max(0, Math.min(100, Math.round(progress))) : 0
+
+      if (type === 'merge' && id) {
+        setMergeTasks((prev) =>
+          prev.map((task) =>
+            task.id === id
+              ? {
+                  ...task,
+                  progress: safeProgress > task.progress ? safeProgress : task.progress,
+                  statusText:
+                    message ||
+                    (phase === 'video'
+                      ? '视频下载中'
+                      : phase === 'audio'
+                        ? '音频下载中'
+                        : phase === 'merge'
+                          ? '合并中'
+                          : phase === 'analyze'
+                            ? '分析中'
+                            : phase === 'library'
+                              ? '写入素材库'
+                              : task.statusText)
+                }
+              : task
+          )
+        )
+        return
+      }
+
+      if (type === 'download' && id) {
+        setDownloadTasks((prev) =>
+          prev.map((task) =>
+            task.resource.id === id
+              ? {
+                  ...task,
+                  progress: safeProgress > task.progress ? safeProgress : task.progress,
+                  statusText:
+                    message ||
+                    (phase === 'download'
+                      ? '下载中'
+                      : phase === 'analyze'
+                        ? '分析中'
+                        : phase === 'library'
+                          ? '写入素材库'
+                          : task.statusText)
+                }
+              : task
+          )
+        )
+      }
+    })
+
     return () => {
       unsubResource()
       unsubStats()
+      unsubDownloadProgress()
     }
   }, [getActivePartition])
 

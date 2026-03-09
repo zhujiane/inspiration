@@ -78,3 +78,29 @@ export type SnifferMergeTaskInput = {
   video: SnifferDownloadResourceInput
   audio: SnifferDownloadResourceInput
 }
+
+export interface SnifferDownloadProgressPayload {
+  /**
+   * 任务类型：
+   * - download: 单资源下载到素材库
+   * - merge: 合并音视频并入库
+   */
+  type: 'download' | 'merge'
+  /**
+   * 对于单下载：resource.id
+   * 对于合并任务：SnifferMergeTaskInput.id
+   */
+  id: string
+  /**
+   * 当前阶段
+   */
+  phase: 'download' | 'video' | 'audio' | 'merge' | 'analyze' | 'library'
+  /**
+   * 0-100 的进度百分比（整数）
+   */
+  progress: number
+  /**
+   * 可选的人类可读提示
+   */
+  message?: string
+}
