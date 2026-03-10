@@ -1,3 +1,4 @@
+import { useEffect, useState, type JSX, type SyntheticEvent } from 'react'
 import { Tooltip } from 'antd'
 import {
   DeleteOutlined,
@@ -48,6 +49,18 @@ const typeLabels = {
   audio: '音频'
 }
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  const totalSeconds = Math.floor(seconds)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
 export default function MediaCard({
   resource,
   onSelect,
@@ -55,13 +68,34 @@ export default function MediaCard({
   onPreview,
   onDownload,
   onCopyUrl
-}: MediaCardProps): React.JSX.Element {
-  const cover = resource.type === 'image' ? resource.thumbnailUrl || resource.url : resource.thumbnailUrl
+}: MediaCardProps): JSX.Element {
+  const [metaResolution, setMetaResolution] = useState(resource.resolution)
+  const [metaDuration, setMetaDuration] = useState(resource.duration)
+  const [videoCover, setVideoCover] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    setMetaResolution(resource.resolution)
+    setMetaDuration(resource.duration)
+    setVideoCover(undefined)
+  }, [resource.id, resource.url, resource.resolution, resource.duration])
+
+  const handleLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget
+
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      setMetaResolution(`${video.videoWidth}×${video.videoHeight}`)
+    }
+
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      setMetaDuration(formatDuration(video.duration))
+    }
+  }
+
+  const cover = resource.type === 'image' ? resource.thumbnailUrl || resource.url : videoCover
 
   return (
     <>
       <div className={`media-card ${resource.selected ? 'media-card--selected' : ''}`} id={`media-card-${resource.id}`}>
-        {/* 4.4 Top — Checkbox only (always visible) */}
         <div className="media-card__top-controls">
           <input
             type="checkbox"
@@ -73,13 +107,12 @@ export default function MediaCard({
           />
         </div>
 
-        {/* 4.2 Thumbnail */}
         <div
           className="media-card__thumbnail"
           onClick={() => onPreview?.(resource.id)}
           style={{ position: 'relative' }}
         >
-          {cover ? (
+          {resource.type === 'image' ? (
             <img
               src={cover}
               alt={resource.title}
@@ -87,15 +120,23 @@ export default function MediaCard({
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
-            <span className="media-card__thumbnail-placeholder">
-              {resource.type === 'video' ? (
-                <PlayCircleOutlined />
-              ) : resource.type === 'audio' ? (
-                <SoundOutlined />
-              ) : (
-                <PictureOutlined />
+            <>
+              <video
+                src={resource.url}
+                preload="metadata"
+                muted
+                playsInline
+                crossOrigin="anonymous"
+                poster={cover}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#111' }}
+                onLoadedMetadata={handleLoadedMetadata}
+              />
+              {resource.type === 'audio' && (
+                <span className="media-card__thumbnail-placeholder media-card__thumbnail-placeholder--media">
+                  <SoundOutlined />
+                </span>
               )}
-            </span>
+            </>
           )}
 
           {resource.type === 'video' && (
@@ -104,7 +145,6 @@ export default function MediaCard({
             </div>
           )}
 
-          {/* Type badge */}
           <span className={`media-card__type-badge media-card__type-badge--${resource.type}`}>
             {typeIcons[resource.type]}
             <span>{typeLabels[resource.type]}</span>
@@ -128,18 +168,16 @@ export default function MediaCard({
             </span>
           ) : null}
 
-          {/* 4.5 Overlay info */}
           <div className="media-card__overlay-info">
             <span className="media-card__overlay-text" title={resource.title}>
               {resource.title}
             </span>
             <span className="media-card__overlay-text media-card__overlay-text--dim">
-              {[resource.size, resource.resolution, resource.duration].filter(Boolean).join(' · ')}
+              {[resource.size, metaResolution, metaDuration].filter(Boolean).join(' · ')}
             </span>
           </div>
         </div>
 
-        {/* 4.3 Bottom Actions — includes delete */}
         <div className="media-card__actions">
           <Tooltip title="预览" mouseEnterDelay={0.5}>
             <button className="media-card__action-btn" onClick={() => onPreview?.(resource.id)} aria-label="预览">
@@ -171,6 +209,16 @@ export default function MediaCard({
         </div>
       </div>
       <style>{`
+      .media-card__thumbnail-placeholder--media {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255,255,255,0.9);
+        font-size: 24px;
+        pointer-events: none;
+      }
       .media-card__thumbnail-overlay {
         position: absolute;
         top: 0;

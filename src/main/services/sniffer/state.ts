@@ -11,11 +11,6 @@ export function createState(partition: string): SnifferState {
     discardedUrls: [],
     seenUrls: new Set(),
     seenOrder: [],
-    pendingHeadUrls: new Set(),
-    pendingAnalyzeUrls: new Set(),
-    analyzingUrls: new Set(),
-    pendingUrls: [],
-    runningCount: 0,
     requestMetaCache: new Map(),
     requestMetaById: new Map()
   }
@@ -28,7 +23,7 @@ export function statsOf(state?: SnifferState, partition?: string): SnifferStatsP
     sniffedCount: state?.sniffedCount ?? 0,
     identifiedCount: state?.identifiedCount ?? 0,
     discardedCount: state?.discardedCount ?? 0,
-    analyzingCount: state?.analyzingUrls.size ?? 0,
+    analyzingCount: 0,
     discardedUrls: state?.discardedUrls ?? []
   }
 }

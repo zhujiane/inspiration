@@ -27,37 +27,6 @@ export interface MainContentRef {
   scanPageResources: () => void
 }
 
-/**
- * Generates a JavaScript snippet that scans the current page DOM
- * and returns all candidate media URLs in an array.
- */
-const DOM_SCAN_SCRIPT = `
-(function() {
-  const urls = new Set();
-  // <video src>, <audio src>, <source src>
-  document.querySelectorAll('video, audio, source, track').forEach(el => {
-    if (el.src) urls.add(el.src);
-    if (el.currentSrc) urls.add(el.currentSrc);
-  });
-  // <img src>
-  document.querySelectorAll('img').forEach(el => {
-    if (el.src && el.src.startsWith('http')) urls.add(el.src);
-    if (el.dataset.src) urls.add(el.dataset.src);
-  });
-  // background-image inline styles
-  document.querySelectorAll('[style]').forEach(el => {
-    const m = el.style.backgroundImage.match(/url\\(['"]?([^'"\\)]+)['"]?\\)/);
-    if (m && m[1].startsWith('http')) urls.add(m[1]);
-  });
-  // Scripts / meta: look for m3u8/mp4 in all script text
-  document.querySelectorAll('script:not([src])').forEach(scr => {
-    const matches = scr.textContent.matchAll(/https?:[^'"\`\\s]+\\.(m3u8|mp4|webm|mkv|mp3|aac|flac|ts|mpd)[^'"\`\\s]*/gi);
-    for (const m of matches) urls.add(m[0]);
-  });
-  return [...urls].filter(u => u.startsWith('http'));
-})()
-`
-
 const BILIBILI_NAVIGATION_PATCH = `
 (() => {
   if ((window).__inspirationBilibiliPatchInstalled) return
@@ -145,22 +114,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
     const webviewRefs = useRef<{ [key: string]: any }>({})
     const initialSrcRefs = useRef<{ [key: string]: string }>({})
 
-    const scanPageResources = () => {
-      const webview = webviewRefs.current[activeTabId]
-      if (!webview?.executeJavaScript) return
-      const activeTab = tabs.find((t) => t.id === activeTabId)
-      const partition = activeTab?.userDataPath ? `persist:${activeTab.userDataPath}` : 'persist:default'
-
-      webview
-        .executeJavaScript(DOM_SCAN_SCRIPT)
-        .then((urls: string[]) => {
-          if (!urls || urls.length === 0) return
-          ;(window as any).snifferBridge?.scanUrls(partition, urls)
-        })
-        .catch(() => {
-          /* ignore */
-        })
-    }
+    const scanPageResources = () => {}
 
     useImperativeHandle(
       ref,

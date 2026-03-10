@@ -1,7 +1,4 @@
 import { BrowserWindow } from 'electron'
-import log from '../logger'
-import { analyzeMedia } from '../ffmpeg'
-import { formatDuration } from './utils'
 import type { SnifferDownloadProgressPayload, SnifferResource, SnifferStatsPayload } from '../../types/sniffer-types'
 
 export function broadcast(channel: string, payload: any): void {
@@ -22,30 +19,6 @@ export function broadcastDownloadProgress(payload: SnifferDownloadProgressPayloa
   broadcast('sniffer:download-progress', payload)
 }
 
-async function enrichResourceMetadata(resource: SnifferResource): Promise<SnifferResource> {
-  if (resource.type === 'image') return resource
-  if (resource.duration && (resource.type === 'audio' || resource.resolution || resource.thumbnailUrl)) return resource
-
-  try {
-    const meta = await analyzeMedia({
-      path: resource.url,
-      header: resource.requestHeaders
-    })
-    return {
-      ...resource,
-      resolution: resource.resolution || (meta.width && meta.height ? `${meta.width}×${meta.height}` : undefined),
-      duration: resource.duration || (meta.duration ? formatDuration(meta.duration) : undefined),
-      thumbnailUrl: resource.thumbnailUrl || meta.cover
-    }
-  } catch (error) {
-    log.debug(`[Sniffer] Failed to enrich metadata for ${resource.url}: ${String(error)}`)
-  }
-
-  return resource
-}
-
 export function emitResource(partition: string, resource: SnifferResource): void {
-  void enrichResourceMetadata(resource).then((nextResource) => {
-    broadcastResource(partition, nextResource)
-  })
+  broadcastResource(partition, resource)
 }

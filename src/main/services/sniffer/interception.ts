@@ -2,9 +2,7 @@ import { session } from 'electron'
 import log from '../logger'
 import { MIN_IMAGE_SIZE } from './constants'
 import { broadcastStats, emitResource } from './broadcast'
-import { headRequest, resolveContentLength } from './http'
-import { shouldProbeConfirmedMedia } from './ffprobe'
-import { enqueueForFfprobe } from './queue'
+import { resolveContentLength } from './http'
 import { listenedPartitions, snifferStates } from './runtime'
 import {
   cacheRequestMeta,
@@ -12,24 +10,74 @@ import {
   consumeRequestMetaById,
   createState,
   dropRequestMetaById,
-  recordDiscardedUrl,
   rememberSeenUrl,
   statsOf
 } from './state'
 import {
   flattenHeaders,
+  formatSize,
   getHeaderValue,
-  isAmbiguousContentType,
   isLikelyStreamSegmentUrl,
   mediaTypeFromContentType,
-  mightBeMediaByUrl,
+  mightBeMediaByRequestHeaders,
   normalizeUrl,
   sanitizeHeaders,
   shouldSkip,
-  titleFromUrl,
-  formatSize
+  titleFromUrl
 } from './utils'
-import type { RequestMeta, SnifferResource, SnifferState } from '../../types/sniffer-types'
+import type { RequestMeta, SnifferResource } from '../../types/sniffer-types'
+
+function inferMediaTypeFromUrl(url: string): SnifferResource['type'] | null {
+  const cleanUrl = url.toLowerCase().split('#')[0].split('?')[0]
+
+  if (/\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(cleanUrl)) return 'image'
+  if (/\.(mp4|webm|mov|mkv|m3u8|mpd|flv)$/i.test(cleanUrl)) return 'video'
+  if (/\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(cleanUrl)) return 'audio'
+
+  if (/\/(image|img|cover|avatar)\//i.test(cleanUrl)) return 'image'
+  if (/\/(audio|music|voice|podcast)\//i.test(cleanUrl)) return 'audio'
+  if (/\/(video|media|stream|play|vod|live|playlist|manifest)\//i.test(cleanUrl)) return 'video'
+
+  return null
+}
+
+function inferMediaType(
+  url: string,
+  requestHeaders?: Record<string, string>,
+  contentType?: string
+): SnifferResource['type'] | null {
+  const confirmedType = mediaTypeFromContentType(contentType || '')
+  if (confirmedType) return confirmedType
+
+  const accept = (getHeaderValue(requestHeaders, 'accept') || '').toLowerCase()
+  if (accept.includes('image/')) return 'image'
+  if (accept.includes('audio/')) return 'audio'
+  if (accept.includes('video/')) return 'video'
+
+  return inferMediaTypeFromUrl(url)
+}
+
+function buildResource(
+  url: string,
+  meta: RequestMeta,
+  type: SnifferResource['type'],
+  confidence: SnifferResource['confidence'],
+  source: SnifferResource['source']
+): SnifferResource {
+  return {
+    id: `sniff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    url,
+    title: titleFromUrl(url),
+    capturedAt: Date.now(),
+    contentType: meta.contentType,
+    size: meta.contentLength ? formatSize(meta.contentLength) : undefined,
+    pageUrl: meta.pageUrl,
+    requestHeaders: sanitizeHeaders(meta.requestHeaders),
+    confidence,
+    source
+  }
+}
 
 function handleResponseStarted(partition: string, details: Electron.OnResponseStartedListenerDetails): void {
   const state = snifferStates.get(partition)
@@ -38,7 +86,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   const url = normalizeUrl(details.url)
   if (shouldSkip(url)) return
   if (state.seenUrls.has(url)) return
-  // HLS/DASH 分片数量巨大，且对用户几乎无意义；跳过可显著减少“分析中很久”的情况
+
   if (isLikelyStreamSegmentUrl(url)) {
     rememberSeenUrl(state, url)
     return
@@ -47,66 +95,61 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   const flatResHeaders = flattenHeaders(details.responseHeaders ?? {})
   const ct = flatResHeaders['content-type'] || ''
   const contentLength = resolveContentLength(flatResHeaders)
-
-  const requestMeta = consumeRequestMetaById(state, (details as { requestId?: string }).requestId)
+  const requestId = (details as { requestId?: string }).requestId
+  const requestMeta = consumeRequestMetaById(state, requestId)
   const existingMeta = state.requestMetaCache.get(url)
-  const mergedRequestHeaders = {
+  const requestHeaders = {
     ...(existingMeta?.requestHeaders ?? {}),
     ...(requestMeta?.requestHeaders ?? {})
   }
 
   const meta: RequestMeta = {
-    requestHeaders: mergedRequestHeaders,
-    referer: getHeaderValue(mergedRequestHeaders, 'referer'),
-    pageUrl: requestMeta?.pageUrl || existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
-    contentType: ct,
+    ...(existingMeta ?? {}),
+    ...(requestMeta ?? {}),
+    requestHeaders,
+    referer: getHeaderValue(requestHeaders, 'referer'),
+    pageUrl: requestMeta?.pageUrl || existingMeta?.pageUrl || getHeaderValue(requestHeaders, 'referer'),
+    contentType: ct || requestMeta?.contentType || existingMeta?.contentType,
     contentLength: Math.max(contentLength, requestMeta?.contentLength ?? 0, existingMeta?.contentLength ?? 0),
     ts: Date.now()
   }
-  cacheRequestMeta(state, url, meta)
 
-  const mediaType = mediaTypeFromContentType(ct)
-  if (mediaType) {
-    if (shouldProbeConfirmedMedia(url, ct)) {
-      rememberSeenUrl(state, url)
-      state.sniffedCount++
-      enqueueForFfprobe(partition, state, url)
-      broadcastStats(statsOf(state, partition))
-      return
-    }
+  const mediaType = inferMediaType(url, requestHeaders, ct)
+  if (!mediaType) {
+    cacheRequestMeta(state, url, meta)
+    return
+  }
 
-    const resBytes = meta.contentLength ?? 0
-    if (mediaType === 'image' && resBytes > 0 && resBytes < MIN_IMAGE_SIZE) return
+  if (mediaType === 'image' && (meta.contentLength ?? 0) > 0 && (meta.contentLength ?? 0) < MIN_IMAGE_SIZE) {
+    cacheRequestMeta(state, url, meta)
+    return
+  }
 
-    rememberSeenUrl(state, url)
+  if (!meta.sniffed) {
+    meta.sniffed = true
     state.sniffedCount++
+  }
+
+  const confirmed = Boolean(mediaTypeFromContentType(ct))
+  const shouldEmit = confirmed || !meta.emitted
+
+  if (!meta.identified) {
+    meta.identified = true
     state.identifiedCount++
-
-    const resource: SnifferResource = {
-      id: `sniff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      type: mediaType,
-      url,
-      title: titleFromUrl(url),
-      capturedAt: Date.now(),
-      contentType: ct,
-      size: resBytes ? formatSize(resBytes) : undefined,
-      pageUrl: meta.pageUrl,
-      requestHeaders: sanitizeHeaders(mergedRequestHeaders),
-      confidence: 'confirmed',
-      source: 'response-header'
-    }
-
-    emitResource(partition, resource)
-    broadcastStats(statsOf(state, partition))
-    return
   }
 
-  if (isAmbiguousContentType(ct) && mightBeMediaByUrl(url)) {
-    state.sniffedCount++
-    enqueueForFfprobe(partition, state, url)
-    broadcastStats(statsOf(state, partition))
-    return
+  meta.emitted = true
+  cacheRequestMeta(state, url, meta)
+  rememberSeenUrl(state, url)
+
+  if (shouldEmit) {
+    emitResource(
+      partition,
+      buildResource(url, meta, mediaType, confirmed ? 'confirmed' : 'probable', 'response-header')
+    )
   }
+
+  broadcastStats(statsOf(state, partition))
 }
 
 function handleBeforeSendHeaders(
@@ -120,124 +163,53 @@ function handleBeforeSendHeaders(
   if (shouldSkip(url)) return
   if (state.seenUrls.has(url)) return
 
+  if (isLikelyStreamSegmentUrl(url)) {
+    rememberSeenUrl(state, url)
+    return
+  }
+
   const existingMeta = state.requestMetaCache.get(url)
-  const mergedRequestHeaders = {
+  const requestHeaders = {
     ...(existingMeta?.requestHeaders ?? {}),
     ...details.requestHeaders
   }
 
-  cacheRequestMeta(state, url, {
-    requestHeaders: mergedRequestHeaders,
-    referer: getHeaderValue(mergedRequestHeaders, 'referer'),
-    pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
-    contentType: existingMeta?.contentType,
-    contentLength: existingMeta?.contentLength,
+  const meta: RequestMeta = {
+    ...(existingMeta ?? {}),
+    requestHeaders,
+    referer: getHeaderValue(requestHeaders, 'referer'),
+    pageUrl: existingMeta?.pageUrl || getHeaderValue(requestHeaders, 'referer'),
     ts: Date.now()
-  })
+  }
+
+  const maybeMedia = mightBeMediaByRequestHeaders(url, requestHeaders)
+  if (maybeMedia && !meta.sniffed) {
+    meta.sniffed = true
+    state.sniffedCount++
+  }
+
+  const mediaType = maybeMedia ? inferMediaType(url, requestHeaders, meta.contentType) : null
+  const shouldEmit = Boolean(mediaType && !meta.emitted)
+
+  if (shouldEmit) {
+    meta.identified = true
+    meta.emitted = true
+    state.identifiedCount++
+  }
+
+  cacheRequestMeta(state, url, meta)
 
   if (details.requestId) {
-    cacheRequestMetaById(state, details.requestId, {
-      requestHeaders: mergedRequestHeaders,
-      referer: getHeaderValue(mergedRequestHeaders, 'referer'),
-      pageUrl: existingMeta?.pageUrl || getHeaderValue(mergedRequestHeaders, 'referer'),
-      contentType: existingMeta?.contentType,
-      contentLength: existingMeta?.contentLength,
-      ts: Date.now()
-    })
+    cacheRequestMetaById(state, details.requestId, meta)
   }
-}
 
-export function handleDomUrls(partition: string, urls: string[]): void {
-  const state = snifferStates.get(partition)
-  if (!state || !state.active) return
-
-  for (const raw of urls) {
-    const url = normalizeUrl(raw)
-    if (shouldSkip(url)) continue
-    if (state.seenUrls.has(url)) continue
-    if (isLikelyStreamSegmentUrl(url)) {
-      rememberSeenUrl(state, url)
-      continue
-    }
-    if (state.pendingHeadUrls.has(url)) continue
-
-    state.pendingHeadUrls.add(url)
-    state.sniffedCount++
-    broadcastStats(statsOf(state, partition))
-
-    void verifyByHead(url, state, partition).finally(() => {
-      state.pendingHeadUrls.delete(url)
-    })
+  if (!shouldEmit || !mediaType) {
+    if (maybeMedia) broadcastStats(statsOf(state, partition))
+    return
   }
-}
 
-async function verifyByHead(url: string, state: SnifferState, partition: string): Promise<void> {
-  const meta = state.requestMetaCache.get(url)
-
-  const extraHeaders: Record<string, string> = {}
-  const referer = getHeaderValue(meta?.requestHeaders, 'referer')
-  const cookie = getHeaderValue(meta?.requestHeaders, 'cookie')
-  const origin = getHeaderValue(meta?.requestHeaders, 'origin')
-  if (referer) extraHeaders['Referer'] = referer
-  if (cookie) extraHeaders['Cookie'] = cookie
-  if (origin) extraHeaders['Origin'] = origin
-
-  try {
-    const head = await headRequest(url, extraHeaders)
-    const mediaType = mediaTypeFromContentType(head.contentType)
-
-    if (mediaType) {
-      if (shouldProbeConfirmedMedia(url, head.contentType)) {
-        enqueueForFfprobe(partition, state, url)
-        return
-      }
-
-      if (mediaType === 'image' && head.contentLength > 0 && head.contentLength < MIN_IMAGE_SIZE) return
-
-      rememberSeenUrl(state, url)
-      cacheRequestMeta(state, url, {
-        ...(meta ?? { requestHeaders: {} }),
-        requestHeaders: meta?.requestHeaders ?? {},
-        contentType: head.contentType,
-        contentLength: head.contentLength,
-        ts: Date.now()
-      })
-
-      state.identifiedCount++
-      const resource: SnifferResource = {
-        id: `sniff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        type: mediaType,
-        url,
-        title: titleFromUrl(url),
-        capturedAt: Date.now(),
-        contentType: head.contentType,
-        size: head.contentLength ? formatSize(head.contentLength) : undefined,
-        pageUrl: meta?.pageUrl,
-        requestHeaders: sanitizeHeaders(meta?.requestHeaders),
-        confidence: 'confirmed',
-        source: 'dom'
-      }
-      emitResource(partition, resource)
-      broadcastStats(statsOf(state, partition))
-      return
-    }
-
-    if (isAmbiguousContentType(head.contentType) && mightBeMediaByUrl(url)) {
-      enqueueForFfprobe(partition, state, url)
-      return
-    }
-
-    if (!head.contentType && mightBeMediaByUrl(url)) {
-      enqueueForFfprobe(partition, state, url)
-      return
-    }
-
-    recordDiscardedUrl(state, url)
-    broadcastStats(statsOf(state, partition))
-  } catch {
-    recordDiscardedUrl(state, url)
-    broadcastStats(statsOf(state, partition))
-  }
+  emitResource(partition, buildResource(url, meta, mediaType, 'probable', 'request-header'))
+  broadcastStats(statsOf(state, partition))
 }
 
 export function ensurePartitionListener(partition: string): void {
@@ -283,10 +255,6 @@ export function stopInterception(partition: string): void {
     return
   }
   state.active = false
-  state.pendingUrls = []
-  state.pendingHeadUrls.clear()
-  state.pendingAnalyzeUrls.clear()
-  state.analyzingUrls.clear()
   log.info(`[Sniffer] Stopped: ${partition}`)
   broadcastStats(statsOf(state, partition))
 }
@@ -303,10 +271,6 @@ export function resetInterception(partition: string): void {
   state.discardedUrls = []
   state.seenUrls.clear()
   state.seenOrder = []
-  state.pendingHeadUrls.clear()
-  state.pendingAnalyzeUrls.clear()
-  state.analyzingUrls.clear()
-  state.pendingUrls = []
   state.requestMetaCache.clear()
   state.requestMetaById.clear()
   broadcastStats(statsOf(state, partition))

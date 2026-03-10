@@ -5,7 +5,6 @@ interface Window {
     invoke: (payload: { path: string; input: unknown; type: 'query' | 'mutation' | 'subscription' }) => Promise<any>
   }
   snifferBridge?: {
-    scanUrls: (partition: string, urls: string[]) => Promise<void>
     onResource: (cb: (data: any) => void) => () => void
     onStats: (cb: (data: any) => void) => () => void
     onDownloadProgress: (cb: (data: any) => void) => () => void

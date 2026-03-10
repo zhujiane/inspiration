@@ -31,6 +31,9 @@ export interface RequestMeta {
   pageUrl?: string
   contentType?: string
   contentLength?: number
+  sniffed?: boolean
+  identified?: boolean
+  emitted?: boolean
   ts: number
 }
 
@@ -43,11 +46,6 @@ export interface SnifferState {
   discardedUrls: string[]
   seenUrls: Set<string>
   seenOrder: string[]
-  pendingHeadUrls: Set<string>
-  pendingAnalyzeUrls: Set<string>
-  analyzingUrls: Set<string>
-  pendingUrls: string[]
-  runningCount: number
   requestMetaCache: Map<string, RequestMeta>
   requestMetaById: Map<string, RequestMeta>
 }

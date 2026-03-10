@@ -10,8 +10,6 @@ const trpcBridge = {
 }
 
 const snifferBridge = {
-  // Renderer → Main: send DOM-scanned URLs
-  scanUrls: (partition: string, urls: string[]) => ipcRenderer.invoke('sniffer:scan-urls', { partition, urls }),
   // Main → Renderer: listen for new resources
   onResource: (cb: (data: any) => void) => {
     const handler = (_: any, data: any) => cb(data)

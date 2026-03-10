@@ -62,8 +62,7 @@ function buildLocalPreviewProxyUrl(localPath: string): string {
 
 async function buildLibraryMeta(
   resource: SnifferDownloadResourceInput,
-  localPath: string,
-  sourceUrl: string
+  localPath: string
 ): Promise<{ meta: any; cover?: string }> {
   const stat = await fs.stat(localPath).catch(() => null)
   const baseSize = stat?.size ?? 0
@@ -81,13 +80,13 @@ async function buildLibraryMeta(
 
   const cover = resource.type === 'image' ? buildLocalPreviewProxyUrl(localPath) : resource.thumbnailUrl || undefined
 
-  // 缺关键字段时，尽量用“远端 URL + headers”回退探测（避免本地路径/大文件 md5 的问题）
+  // 缺关键字段时，只对本地文件做补充分析。
   const shouldFallbackAnalyze =
     resource.type !== 'image' && (!cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height))
 
   if (shouldFallbackAnalyze) {
     try {
-      const analyzed = await analyzeMedia({ path: sourceUrl, header: resource.requestHeaders })
+      const analyzed = await analyzeMedia({ path: localPath })
       const merged = {
         ...analyzed,
         ...baseMeta,
@@ -96,7 +95,7 @@ async function buildLibraryMeta(
       }
       return { meta: merged, cover: cover || analyzed.cover }
     } catch (error) {
-      log.debug(`[Sniffer] Remote analyze skipped/failed (${sourceUrl}): ${String(error)}`)
+      log.debug(`[Sniffer] Local analyze skipped/failed (${localPath}): ${String(error)}`)
     }
   }
 
@@ -349,7 +348,7 @@ export async function addDownloadedResourceToLibrary(
   localPath: string,
   sourceUrl: string
 ): Promise<any> {
-  const { meta, cover } = await buildLibraryMeta(resource, localPath, sourceUrl)
+  const { meta, cover } = await buildLibraryMeta(resource, localPath)
   const created = await db
     .insert(resources)
     .values({
@@ -441,7 +440,7 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
       const shouldFallbackAnalyze = !cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height)
       if (shouldFallbackAnalyze) {
         try {
-          const analyzed = await analyzeMedia({ path: task.video.url, header: task.video.requestHeaders })
+          const analyzed = await analyzeMedia({ path: outputPath })
           cover = cover || analyzed.cover
           meta = {
             ...analyzed,
@@ -450,7 +449,7 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
             cover
           }
         } catch (error) {
-          log.debug(`[Sniffer] Remote analyze skipped/failed (${task.video.url}): ${String(error)}`)
+          log.debug(`[Sniffer] Local analyze skipped/failed (${outputPath}): ${String(error)}`)
         }
       }
 

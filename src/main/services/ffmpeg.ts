@@ -20,7 +20,6 @@ const FINGERPRINT_CHUNK_BYTES = 1024 * 1024
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
 
 const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'])
-const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
 
 const getFfmpegPath = (): string => {
   if (!ffmpegStatic) {
@@ -36,29 +35,10 @@ const getFfprobePath = (): string => {
   return ffprobePath
 }
 
-const toHeaderLines = (header?: Record<string, string>): string | null => {
-  if (!header) return null
-  const lines = Object.entries(header)
-    .filter(([, value]) => typeof value === 'string' && value.trim())
-    .map(([key, value]) => `${key}: ${value.replace(/[\r\n]+/g, ' ').trim()}`)
-    .join('\r\n')
-  return lines ? `${lines}\r\n` : null
-}
-
-const buildInputArgs = (source: string, header?: Record<string, string>, timeoutMs = DEFAULT_TIMEOUT_MS): string[] => {
-  const args: string[] = []
-  const headerLines = toHeaderLines(header)
-
-  if (headerLines) {
-    args.push('-headers', headerLines)
-  }
-
+const assertLocalPath = (source: string): void => {
   if (isHttpUrl(source)) {
-    args.push('-rw_timeout', String(timeoutMs * 1000), '-reconnect', '1', '-reconnect_streamed', '1')
+    throw new Error('仅支持本地文件')
   }
-
-  args.push('-i', source)
-  return args
 }
 
 const runProcess = (
@@ -127,18 +107,11 @@ const runProcess = (
 
 export const runFfprobe = async (
   source: string,
-  header?: Record<string, string>,
+  _header?: Record<string, string>,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<any> => {
-  const args = [
-    '-v',
-    'error',
-    '-print_format',
-    'json',
-    '-show_format',
-    '-show_streams',
-    ...buildInputArgs(source, header, timeoutMs)
-  ]
+  assertLocalPath(source)
+  const args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', '-i', source]
   const { stdout } = await runProcess(getFfprobePath(), args, {
     timeoutMs,
     stdoutLimitBytes: 2 * 1024 * 1024
@@ -148,15 +121,17 @@ export const runFfprobe = async (
 
 export const captureVideoFrame = async (
   source: string,
-  header?: Record<string, string>,
+  _header?: Record<string, string>,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<Buffer> => {
+  assertLocalPath(source)
   const args = [
     '-v',
     'error',
     '-ss',
     '0',
-    ...buildInputArgs(source, header, timeoutMs),
+    '-i',
+    source,
     '-frames:v',
     '1',
     '-f',
@@ -259,15 +234,8 @@ const buildFileFingerprint = async (
   return md5(`${size}|${duration}|${width}|${height}|${firstHash}|${lastHash}`)
 }
 
-const ffprobe = (source: string, header?: Record<string, string>): Promise<ProbeMetadata> =>
-  runFfprobe(
-    source,
-    {
-      'User-Agent': DEFAULT_USER_AGENT,
-      ...(header ?? {})
-    },
-    DEFAULT_TIMEOUT_MS
-  ) as Promise<ProbeMetadata>
+const ffprobe = (source: string): Promise<ProbeMetadata> =>
+  runFfprobe(source, undefined, DEFAULT_TIMEOUT_MS) as Promise<ProbeMetadata>
 
 const getMimeExt = (filePath: string): string => {
   const ext = path.extname(filePath).slice(1).toLowerCase() || 'jpeg'
@@ -305,28 +273,24 @@ const detectFileType = (filePath: string, metadata: ProbeMetadata): AnalyzeResul
   return 'other'
 }
 
-const getFirstFrameToBase64 = (source: string, header?: Record<string, string>): Promise<string> =>
-  captureVideoFrame(
-    source,
-    {
-      'User-Agent': DEFAULT_USER_AGENT,
-      ...(header ?? {})
-    },
-    DEFAULT_TIMEOUT_MS
-  ).then((buffer) => `data:image/jpeg;base64,${buffer.toString('base64')}`)
+const getFirstFrameToBase64 = (source: string): Promise<string> =>
+  captureVideoFrame(source, undefined, DEFAULT_TIMEOUT_MS).then(
+    (buffer) => `data:image/jpeg;base64,${buffer.toString('base64')}`
+  )
 
 export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> => {
-  const isUrl = isHttpUrl(input.path)
-  if (!isUrl) {
-    try {
-      await fs.access(input.path)
-    } catch {
-      throw new Error('文件不存在')
-    }
+  if (isHttpUrl(input.path)) {
+    throw new Error('仅支持本地文件')
   }
 
-  const metadata = await ffprobe(input.path, input.header)
-  const stats = isUrl ? { size: 0 } : await fs.stat(input.path)
+  try {
+    await fs.access(input.path)
+  } catch {
+    throw new Error('文件不存在')
+  }
+
+  const metadata = await ffprobe(input.path)
+  const stats = await fs.stat(input.path)
 
   const videoStream = metadata.streams?.find((s) => s.codec_type === 'video')
   const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
@@ -334,17 +298,15 @@ export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> 
   const duration = parseDuration(metadata.format?.duration)
 
   let fingerprint: string | undefined
-  if (!isUrl) {
-    try {
-      fingerprint = await buildFileFingerprint(input.path, {
-        size: stats.size,
-        duration,
-        width: videoStream?.width ?? 0,
-        height: videoStream?.height ?? 0
-      })
-    } catch (err) {
-      log.error('Failed to build fingerprint:', err)
-    }
+  try {
+    fingerprint = await buildFileFingerprint(input.path, {
+      size: stats.size,
+      duration,
+      width: videoStream?.width ?? 0,
+      height: videoStream?.height ?? 0
+    })
+  } catch (err) {
+    log.error('Failed to build fingerprint:', err)
   }
 
   const result: AnalyzeResult = {
@@ -360,21 +322,17 @@ export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> 
   }
 
   if (fileType === 'image') {
-    if (isUrl) {
-      result.cover = input.path
-    } else {
-      try {
-        const base64 = await fs.readFile(input.path, { encoding: 'base64' })
-        result.cover = `data:image/${getMimeExt(input.path)};base64,${base64}`
-      } catch (err) {
-        log.error('Image read error:', err)
-      }
+    try {
+      const base64 = await fs.readFile(input.path, { encoding: 'base64' })
+      result.cover = `data:image/${getMimeExt(input.path)};base64,${base64}`
+    } catch (err) {
+      log.error('Image read error:', err)
     }
   }
 
   if (fileType === 'video') {
     try {
-      result.cover = await getFirstFrameToBase64(input.path, input.header)
+      result.cover = await getFirstFrameToBase64(input.path)
     } catch (err) {
       log.error('Failed to capture video cover:', err)
     }

@@ -69,6 +69,7 @@ export default function TitleBar({
   canGoForward = false
 }: TitleBarProps): React.JSX.Element {
   const [searchFocused, setSearchFocused] = useState(false)
+  const [inputValue, setInputValue] = useState(url)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const [showLeftArrow, setShowLeftArrow] = useState(false)
   const [showRightArrow, setShowRightArrow] = useState(false)
@@ -87,9 +88,17 @@ export default function TitleBar({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter') {
-      onUrlSubmit?.(e.currentTarget.value)
+      const nextValue = e.currentTarget.value.trim()
+      setInputValue(nextValue)
+      onUrlSubmit?.(nextValue)
     }
   }
+
+  useEffect(() => {
+    if (!searchFocused) {
+      setInputValue(url)
+    }
+  }, [url, searchFocused])
 
   // Check if tab scroll arrows should be visible
   const checkScrollArrows = useCallback(() => {
@@ -168,11 +177,16 @@ export default function TitleBar({
             className="title-bar__search-input"
             type="text"
             placeholder="输入网址或搜索..."
-            value={url}
-            onChange={(e) => onUrlChange?.(e.target.value)}
+            value={inputValue}
+            onChange={(e) => {
+              setInputValue(e.target.value)
+            }}
             onKeyDown={handleKeyDown}
             onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
+            onBlur={() => {
+              setSearchFocused(false)
+              onUrlChange?.(inputValue)
+            }}
             aria-label="地址栏"
             id="url-bar"
             style={searchFocused ? { flex: 1 } : undefined}
