@@ -76,7 +76,6 @@ export default function MediaCard({
   useEffect(() => {
     setMetaResolution(resource.resolution)
     setMetaDuration(resource.duration)
-    setVideoCover(undefined)
   }, [resource.id, resource.url, resource.resolution, resource.duration])
 
   const handleLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
@@ -127,8 +126,7 @@ export default function MediaCard({
                 muted
                 playsInline
                 crossOrigin="anonymous"
-                poster={cover}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#111' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#f7f2f2' }}
                 onLoadedMetadata={handleLoadedMetadata}
               />
               {resource.type === 'audio' && (

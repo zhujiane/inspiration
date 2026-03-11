@@ -933,6 +933,13 @@
   white-space: nowrap;
 }
 
+.sniffer-panel__stats-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .sniffer-panel__stats-counts {
   display: flex;
   align-items: center;

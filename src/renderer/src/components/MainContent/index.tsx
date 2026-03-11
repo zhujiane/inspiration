@@ -3,18 +3,11 @@ import { GlobalOutlined } from '@ant-design/icons'
 import type { Tab } from '../TitleBar'
 import ResourcePage from '../../pages/resource'
 import SetupPage from '../../pages/config'
-import FloatingCompass from '../FloatingCompass'
-
 interface MainContentProps {
   tabs: Tab[]
   activeTabId: string
   onWebviewEvent?: (tabId: string, event: any) => void
   snifferActive?: boolean
-  snifferPartition?: string
-  onSnifferStart?: () => void
-  onSnifferStop?: () => void
-  onSnifferRefresh?: () => void
-  onSnifferConfig?: () => void
 }
 
 export interface MainContentRef {
@@ -103,11 +96,7 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
       tabs,
       activeTabId,
       onWebviewEvent,
-      snifferActive = false,
-      onSnifferStart,
-      onSnifferStop,
-      onSnifferRefresh,
-      onSnifferConfig
+      snifferActive = false
     },
     ref
   ) => {
@@ -236,9 +225,6 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
       )
     }
 
-    const activeTab = tabs.find((t) => t.id === activeTabId)
-    const isWebviewActive = activeTab?.type !== 'resource' && activeTab?.type !== 'system'
-
     return (
       <main className="main-content" id="main-content">
         <div className="main-content__webview-container">
@@ -295,20 +281,6 @@ const MainContent = forwardRef<MainContentRef, MainContentProps>(
             )
           })}
         </div>
-
-        {/* Floating Compass — overlays the active webview */}
-        {isWebviewActive && (
-          <FloatingCompass
-            active={snifferActive}
-            onStart={() => onSnifferStart?.()}
-            onStop={() => onSnifferStop?.()}
-            onRefresh={() => {
-              scanPageResources()
-              onSnifferRefresh?.()
-            }}
-            onConfig={() => onSnifferConfig?.()}
-          />
-        )}
       </main>
     )
   }

@@ -302,16 +302,6 @@ function App(): React.JSX.Element {
     }
   }, [getActivePartition])
 
-  const handleSnifferRefresh = useCallback(async () => {
-    // Re-scan current page DOM
-    mainContentRef.current?.scanPageResources()
-  }, [])
-
-  const handleSnifferConfig = useCallback(() => {
-    // Placeholder for config modal
-    message.info('配置功能即将上线')
-  }, [])
-
   // ---------- Bookmark helpers ----------
   const getCanonicalUrl = (u: string) => {
     if (!u || !u.includes('.')) return u
@@ -344,6 +334,13 @@ function App(): React.JSX.Element {
   useEffect(() => {
     fetchBookmarkGroups()
   }, [fetchBookmarkGroups])
+
+  useEffect(() => {
+    const activeTab = tabs.find((tab) => tab.id === activeTabId)
+    if (activeTab?.type === 'webview' && activeTab.url) {
+      setSnifferCollapsed(false)
+    }
+  }, [tabs, activeTabId])
 
   // --- Webview Event Handler ---
   const handleWebviewEvent = useCallback(
@@ -1000,11 +997,6 @@ function App(): React.JSX.Element {
                 activeTabId={activeTabId}
                 onWebviewEvent={handleWebviewEvent}
                 snifferActive={snifferActive}
-                snifferPartition={getActivePartition()}
-                onSnifferStart={handleSnifferStart}
-                onSnifferStop={handleSnifferStop}
-                onSnifferRefresh={handleSnifferRefresh}
-                onSnifferConfig={handleSnifferConfig}
               />
 
               {/* 4. Right Sniffer Panel */}
@@ -1021,6 +1013,13 @@ function App(): React.JSX.Element {
                 downloadModalVisible={downloadModalVisible}
                 downloadSubmitting={downloadSubmitting}
                 onToggle={() => setSnifferCollapsed((p) => !p)}
+                onActiveChange={(active) => {
+                  if (active) {
+                    void handleSnifferStart()
+                    return
+                  }
+                  void handleSnifferStop()
+                }}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
                 onInvertSelect={handleInvertSelect}

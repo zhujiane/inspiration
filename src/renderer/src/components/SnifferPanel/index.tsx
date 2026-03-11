@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, message, Popconfirm, Dropdown } from 'antd'
+import { Tooltip, Progress, Modal, Select, InputNumber, Button, Space, Switch, message, Popconfirm, Dropdown } from 'antd'
 import {
   CheckSquareOutlined,
   ClearOutlined,
@@ -67,6 +67,7 @@ interface SnifferPanelProps {
   downloadModalVisible?: boolean
   downloadSubmitting?: boolean
   onToggle: () => void
+  onActiveChange?: (active: boolean) => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
   onInvertSelect?: () => void
@@ -99,6 +100,7 @@ export default function SnifferPanel({
   downloadModalVisible = false,
   downloadSubmitting = false,
   onToggle,
+  onActiveChange,
   onSearchChange,
   onInvertSelect,
   onClearAll,
@@ -186,19 +188,28 @@ export default function SnifferPanel({
           {/* ── Stats Bar ── */}
           <div className="sniffer-panel__stats">
             <div className="sniffer-panel__stats-header">
-              <span className="sniffer-panel__stats-title">
-                {stats?.active ? (
-                  <>
-                    <LoadingOutlined spin style={{ marginRight: 4, color: 'var(--color-primary)' }} />
-                    嗅探中
-                  </>
-                ) : (
-                  <>
-                    <RadarChartOutlined style={{ marginRight: 4 }} />
-                    嗅探结果
-                  </>
-                )}
-              </span>
+              <div className="sniffer-panel__stats-title-wrap">
+                <span className="sniffer-panel__stats-title">
+                  {stats?.active ? (
+                    <>
+                      <LoadingOutlined spin style={{ marginRight: 4, color: 'var(--color-primary)' }} />
+                      嗅探中
+                    </>
+                  ) : (
+                    <>
+                      <RadarChartOutlined style={{ marginRight: 4 }} />
+                      嗅探结果
+                    </>
+                  )}
+                </span>
+                <Switch
+                  size="small"
+                  checked={!!stats?.active}
+                  onChange={(checked) => onActiveChange?.(checked)}
+                  checkedChildren="开"
+                  unCheckedChildren="关"
+                />
+              </div>
               <div className="sniffer-panel__stats-counts">
                 <Tooltip title="已嗅探URL数">
                   <span className="sniffer-panel__stats-badge sniffer-panel__stats-badge--sniffed">
