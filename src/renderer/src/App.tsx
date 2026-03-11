@@ -914,6 +914,28 @@ function App(): React.JSX.Element {
     [resources]
   )
 
+  const handleResourceMetadataChange = useCallback(
+    (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>) => {
+      setResources((prev) =>
+        prev.map((resource) => {
+          if (resource.id !== id) return resource
+
+          const next = { ...resource, ...metadata }
+          if (
+            next.type === resource.type &&
+            next.resolution === resource.resolution &&
+            next.duration === resource.duration
+          ) {
+            return resource
+          }
+
+          return next
+        })
+      )
+    },
+    []
+  )
+
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntdApp style={{ height: '100%' }}>
@@ -1036,6 +1058,7 @@ function App(): React.JSX.Element {
                 onResourcePreview={handleResourcePreview}
                 onResourceDownload={handleResourceDownload}
                 onResourceCopyUrl={handleResourceCopyUrl}
+                onResourceMetadataChange={handleResourceMetadataChange}
               />
             </div>
 

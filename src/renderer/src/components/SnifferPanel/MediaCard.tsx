@@ -36,6 +36,10 @@ interface MediaCardProps {
   onPreview?: (id: string) => void
   onDownload?: (id: string) => void
   onCopyUrl?: (id: string) => void
+  onMetadataChange?: (
+    id: string,
+    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>
+  ) => void
 }
 
 const typeIcons = {
@@ -68,7 +72,8 @@ export default function MediaCard({
   onDelete,
   onPreview,
   onDownload,
-  onCopyUrl
+  onCopyUrl,
+  onMetadataChange
 }: MediaCardProps): JSX.Element {
   const [displayType, setDisplayType] = useState<MediaResource['type']>(resource.type)
   const [metaResolution, setMetaResolution] = useState(resource.resolution)
@@ -84,21 +89,28 @@ export default function MediaCard({
 
   const handleLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget
-    console.warn('Video metadata loaded:', {
-      videoWidth: video.videoWidth,
-      videoHeight: video.videoHeight,
-      duration: video.duration
-    })
+    const nextMetadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>> = {}
+
     if (video.videoWidth <= 0 || video.videoHeight <= 0) {
       setDisplayType('audio')
       setMetaResolution(undefined)
+      nextMetadata.type = 'audio'
+      nextMetadata.resolution = undefined
     } else {
       setDisplayType(resource.type)
-      setMetaResolution(`${video.videoWidth}×${video.videoHeight}`)
+      const resolution = `${video.videoWidth}×${video.videoHeight}`
+      setMetaResolution(resolution)
+      nextMetadata.resolution = resolution
     }
 
     if (Number.isFinite(video.duration) && video.duration > 0) {
-      setMetaDuration(formatDuration(video.duration))
+      const duration = formatDuration(video.duration)
+      setMetaDuration(duration)
+      nextMetadata.duration = duration
+    }
+
+    if (Object.keys(nextMetadata).length > 0) {
+      onMetadataChange?.(resource.id, nextMetadata)
     }
   }
 

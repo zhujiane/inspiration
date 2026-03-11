@@ -97,6 +97,10 @@ interface SnifferPanelProps {
   onResourcePreview?: (id: string) => void
   onResourceDownload?: (id: string) => void
   onResourceCopyUrl?: (id: string) => void
+  onResourceMetadataChange?: (
+    id: string,
+    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>
+  ) => void
 }
 
 export default function SnifferPanel({
@@ -127,7 +131,8 @@ export default function SnifferPanel({
   onResourceDelete,
   onResourcePreview,
   onResourceDownload,
-  onResourceCopyUrl
+  onResourceCopyUrl,
+  onResourceMetadataChange
 }: SnifferPanelProps): React.JSX.Element {
   const [advancedModalVisible, setAdvancedModalVisible] = useState(false)
   const [discardedModalVisible, setDiscardedModalVisible] = useState(false)
@@ -344,6 +349,7 @@ export default function SnifferPanel({
                   onPreview={onResourcePreview}
                   onDownload={onResourceDownload}
                   onCopyUrl={onResourceCopyUrl}
+                  onMetadataChange={onResourceMetadataChange}
                 />
               ))
             ) : (
