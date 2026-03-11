@@ -91,15 +91,7 @@ const isBilibiliUrl = (url: string): boolean => {
 }
 
 const MainContent = forwardRef<MainContentRef, MainContentProps>(
-  (
-    {
-      tabs,
-      activeTabId,
-      onWebviewEvent,
-      snifferActive = false
-    },
-    ref
-  ) => {
+  ({ tabs, activeTabId, onWebviewEvent, snifferActive = false }, ref) => {
     const webviewRefs = useRef<{ [key: string]: any }>({})
     const initialSrcRefs = useRef<{ [key: string]: string }>({})
 

@@ -14,6 +14,16 @@ export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw)
     u.hash = ''
+    return u.toString()
+  } catch {
+    return raw
+  }
+}
+
+export function normalizeUrlForLookup(raw: string): string {
+  try {
+    const u = new URL(raw)
+    u.hash = ''
     const hostname = u.hostname.toLowerCase()
 
     // 针对 B 站视频分发域名做归一化，避免同一资源在不同节点、多种签名参数下被重复捕获
@@ -201,7 +211,13 @@ export function isLikelyStreamManifestUrl(url: string): boolean {
  */
 export function isLikelyStreamSegmentUrl(url: string): boolean {
   const ext = urlExt(url)
-  if (ext === 'm4s') return true
+  if (ext === 'm4s') {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase()
+      if (hostname.includes('bilivideo') || hostname.includes('bilibili')) return false
+    } catch {}
+    return true
+  }
   if (ext !== 'ts') return false
 
   const lower = url.toLowerCase()
@@ -232,7 +248,7 @@ export function mightBeMediaByUrl(url: string): boolean {
     const u = new URL(url)
     const ext = u.pathname.split('.').pop()?.toLowerCase().split('?')[0] ?? ''
     if (MEDIA_EXTS.has(ext)) return true
-    if (/\/(video|audio|media|hls|stream|m3u8|playlist|mp4|ts|mp3|manifest)\//i.test(u.pathname)) return true
+    if (/\/(audio|music|voice|podcast|image|img|cover|avatar)\//i.test(u.pathname)) return true
     if (/\.(oss|cos|cdn|bce|myqcloud|aliyuncs|cloudfront|akamaized)\./i.test(u.hostname)) return true
     return false
   } catch {
@@ -242,6 +258,8 @@ export function mightBeMediaByUrl(url: string): boolean {
 
 export function mightBeMediaByRequestHeaders(url: string, headers: Record<string, string>): boolean {
   if (mightBeMediaByUrl(url)) return true
+  const fetchDest = (getHeaderValue(headers, 'sec-fetch-dest') || '').toLowerCase()
+  if (fetchDest === 'video' || fetchDest === 'audio' || fetchDest === 'image') return true
   const accept = getHeaderValue(headers, 'accept') || ''
   if (/video|audio/.test(accept)) return true
   if (/image\//.test(accept) && !/text\/html/.test(accept)) return true

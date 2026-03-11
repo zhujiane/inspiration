@@ -21,6 +21,7 @@ import {
   mediaTypeFromContentType,
   mightBeMediaByRequestHeaders,
   normalizeUrl,
+  normalizeUrlForLookup,
   sanitizeHeaders,
   shouldSkip,
   titleFromUrl
@@ -36,7 +37,6 @@ function inferMediaTypeFromUrl(url: string): SnifferResource['type'] | null {
 
   if (/\/(image|img|cover|avatar)\//i.test(cleanUrl)) return 'image'
   if (/\/(audio|music|voice|podcast)\//i.test(cleanUrl)) return 'audio'
-  if (/\/(video|media|stream|play|vod|live|playlist|manifest)\//i.test(cleanUrl)) return 'video'
 
   return null
 }
@@ -48,6 +48,11 @@ function inferMediaType(
 ): SnifferResource['type'] | null {
   const confirmedType = mediaTypeFromContentType(contentType || '')
   if (confirmedType) return confirmedType
+
+  const fetchDest = (getHeaderValue(requestHeaders, 'sec-fetch-dest') || '').toLowerCase()
+  if (fetchDest === 'image') return 'image'
+  if (fetchDest === 'audio') return 'audio'
+  if (fetchDest === 'video') return 'video'
 
   const accept = (getHeaderValue(requestHeaders, 'accept') || '').toLowerCase()
   if (accept.includes('image/')) return 'image'
@@ -84,11 +89,12 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   if (!state || !state.active) return
 
   const url = normalizeUrl(details.url)
+  const lookupUrl = normalizeUrlForLookup(details.url)
   if (shouldSkip(url)) return
-  if (state.seenUrls.has(url)) return
+  if (state.seenUrls.has(lookupUrl)) return
 
   if (isLikelyStreamSegmentUrl(url)) {
-    rememberSeenUrl(state, url)
+    rememberSeenUrl(state, lookupUrl)
     return
   }
 
@@ -97,7 +103,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   const contentLength = resolveContentLength(flatResHeaders)
   const requestId = (details as { requestId?: string }).requestId
   const requestMeta = consumeRequestMetaById(state, requestId)
-  const existingMeta = state.requestMetaCache.get(url)
+  const existingMeta = state.requestMetaCache.get(lookupUrl)
   const requestHeaders = {
     ...(existingMeta?.requestHeaders ?? {}),
     ...(requestMeta?.requestHeaders ?? {})
@@ -114,14 +120,16 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
     ts: Date.now()
   }
 
-  const mediaType = inferMediaType(url, requestHeaders, ct)
+  const confirmedType = mediaTypeFromContentType(ct)
+  const maybeMedia = confirmedType ? true : mightBeMediaByRequestHeaders(url, requestHeaders)
+  const mediaType = confirmedType || (maybeMedia ? inferMediaType(url, requestHeaders, ct) : null)
   if (!mediaType) {
-    cacheRequestMeta(state, url, meta)
+    cacheRequestMeta(state, lookupUrl, meta)
     return
   }
 
   if (mediaType === 'image' && (meta.contentLength ?? 0) > 0 && (meta.contentLength ?? 0) < MIN_IMAGE_SIZE) {
-    cacheRequestMeta(state, url, meta)
+    cacheRequestMeta(state, lookupUrl, meta)
     return
   }
 
@@ -130,7 +138,7 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
     state.sniffedCount++
   }
 
-  const confirmed = Boolean(mediaTypeFromContentType(ct))
+  const confirmed = Boolean(confirmedType)
   const shouldEmit = confirmed || !meta.emitted
 
   if (!meta.identified) {
@@ -139,8 +147,8 @@ function handleResponseStarted(partition: string, details: Electron.OnResponseSt
   }
 
   meta.emitted = true
-  cacheRequestMeta(state, url, meta)
-  rememberSeenUrl(state, url)
+  cacheRequestMeta(state, lookupUrl, meta)
+  rememberSeenUrl(state, lookupUrl)
 
   if (shouldEmit) {
     emitResource(
@@ -160,15 +168,16 @@ function handleBeforeSendHeaders(
   if (!state || !state.active) return
 
   const url = normalizeUrl(details.url)
+  const lookupUrl = normalizeUrlForLookup(details.url)
   if (shouldSkip(url)) return
-  if (state.seenUrls.has(url)) return
+  if (state.seenUrls.has(lookupUrl)) return
 
   if (isLikelyStreamSegmentUrl(url)) {
-    rememberSeenUrl(state, url)
+    rememberSeenUrl(state, lookupUrl)
     return
   }
 
-  const existingMeta = state.requestMetaCache.get(url)
+  const existingMeta = state.requestMetaCache.get(lookupUrl)
   const requestHeaders = {
     ...(existingMeta?.requestHeaders ?? {}),
     ...details.requestHeaders
@@ -197,7 +206,7 @@ function handleBeforeSendHeaders(
     state.identifiedCount++
   }
 
-  cacheRequestMeta(state, url, meta)
+  cacheRequestMeta(state, lookupUrl, meta)
 
   if (details.requestId) {
     cacheRequestMetaById(state, details.requestId, meta)

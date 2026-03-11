@@ -49,6 +49,7 @@ export const MEDIA_EXTS = new Set([
   'm3u8',
   'mpd',
   'mp4',
+  'm4s',
   'webm',
   'mkv',
   'avi',

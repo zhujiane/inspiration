@@ -10,6 +10,7 @@ import {
   PictureOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
+import { buildPreviewProxyUrl } from '../../lib/media'
 
 export interface MediaResource {
   id: string
@@ -69,19 +70,30 @@ export default function MediaCard({
   onDownload,
   onCopyUrl
 }: MediaCardProps): JSX.Element {
+  const [displayType, setDisplayType] = useState<MediaResource['type']>(resource.type)
   const [metaResolution, setMetaResolution] = useState(resource.resolution)
   const [metaDuration, setMetaDuration] = useState(resource.duration)
-  const [videoCover, setVideoCover] = useState<string | undefined>(undefined)
+  const previewUrl = buildPreviewProxyUrl(resource.url, resource.requestHeaders)
+  const previewThumbnailUrl = buildPreviewProxyUrl(resource.thumbnailUrl || resource.url, resource.requestHeaders)
 
   useEffect(() => {
+    setDisplayType(resource.type)
     setMetaResolution(resource.resolution)
     setMetaDuration(resource.duration)
-  }, [resource.id, resource.url, resource.resolution, resource.duration])
+  }, [resource.id, resource.type, resource.url, resource.resolution, resource.duration])
 
   const handleLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget
-
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
+    console.warn('Video metadata loaded:', {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      duration: video.duration
+    })
+    if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+      setDisplayType('audio')
+      setMetaResolution(undefined)
+    } else {
+      setDisplayType(resource.type)
       setMetaResolution(`${video.videoWidth}×${video.videoHeight}`)
     }
 
@@ -89,8 +101,6 @@ export default function MediaCard({
       setMetaDuration(formatDuration(video.duration))
     }
   }
-
-  const cover = resource.type === 'image' ? resource.thumbnailUrl || resource.url : videoCover
 
   return (
     <>
@@ -111,9 +121,9 @@ export default function MediaCard({
           onClick={() => onPreview?.(resource.id)}
           style={{ position: 'relative' }}
         >
-          {resource.type === 'image' ? (
+          {displayType === 'image' ? (
             <img
-              src={cover}
+              src={previewThumbnailUrl}
               alt={resource.title}
               loading="lazy"
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -121,7 +131,7 @@ export default function MediaCard({
           ) : (
             <>
               <video
-                src={resource.url}
+                src={previewUrl}
                 preload="metadata"
                 muted
                 playsInline
@@ -129,7 +139,7 @@ export default function MediaCard({
                 style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#f7f2f2' }}
                 onLoadedMetadata={handleLoadedMetadata}
               />
-              {resource.type === 'audio' && (
+              {displayType === 'audio' && (
                 <span className="media-card__thumbnail-placeholder media-card__thumbnail-placeholder--media">
                   <SoundOutlined />
                 </span>
@@ -137,15 +147,15 @@ export default function MediaCard({
             </>
           )}
 
-          {resource.type === 'video' && (
+          {displayType === 'video' && (
             <div className="media-card__thumbnail-overlay">
               <PlayCircleOutlined />
             </div>
           )}
 
-          <span className={`media-card__type-badge media-card__type-badge--${resource.type}`}>
-            {typeIcons[resource.type]}
-            <span>{typeLabels[resource.type]}</span>
+          <span className={`media-card__type-badge media-card__type-badge--${displayType}`}>
+            {typeIcons[displayType]}
+            <span>{typeLabels[displayType]}</span>
           </span>
 
           {resource.merged ? (
