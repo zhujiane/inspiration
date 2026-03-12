@@ -1,6 +1,7 @@
 import { publicProcedure, trpc } from '@shared/routers/trpc'
 import { z } from 'zod'
 import {
+  downloadSelectedToLibrary,
   downloadToLibrary,
   getSnifferStats,
   mergeSelectedToLibrary,
@@ -57,6 +58,12 @@ export const snifferRouter = trpc.router({
     const result = await downloadToLibrary(input.resource)
     return { success: true, filePath: result.filePath, libraryItem: result.libraryItem }
   }),
+
+  downloadSelected: publicProcedure
+    .input(z.object({ resources: z.array(snifferDownloadResourceSchema).min(1) }))
+    .mutation(async ({ input }) => {
+      return downloadSelectedToLibrary(input.resources)
+    }),
 
   mergeSelected: publicProcedure
     .input(z.object({ tasks: z.array(snifferMergeTaskSchema).min(1) }))

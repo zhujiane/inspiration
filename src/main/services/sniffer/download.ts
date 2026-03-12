@@ -369,6 +369,64 @@ export async function mergeAudioVideo(videoPath: string, audioPath: string, outp
   await mergeMediaTracks(videoPath, audioPath, outputPath)
 }
 
+export async function downloadSelectedTasks(resourcesToDownload: SnifferDownloadResourceInput[]): Promise<{
+  success: true
+  downloadedCount: number
+  items: Array<
+    | { id: string; success: true; filePath: string; finalUrl: string; libraryItem: any }
+    | { id: string; success: false; errorMessage: string }
+  >
+}> {
+  const maxConcurrent = await getMaxConcurrentDownloads()
+  const downloadResults: Array<
+    | { id: string; success: true; filePath: string; finalUrl: string; libraryItem: any }
+    | { id: string; success: false; errorMessage: string }
+  > = new Array(resourcesToDownload.length)
+
+  await runWithConcurrencyLimit(resourcesToDownload, maxConcurrent, async (resource, index) => {
+    const emitProgress = (partial: Partial<SnifferDownloadProgressPayload>) => {
+      broadcastDownloadProgress({
+        type: 'download',
+        id: resource.id,
+        phase: partial.phase ?? 'download',
+        progress: partial.progress ?? 0,
+        message: partial.message
+      })
+    }
+
+    try {
+      emitProgress({ phase: 'download', progress: 10, message: '开始下载' })
+      const { filePath, finalUrl } = await downloadRemoteResource(resource)
+
+      emitProgress({ phase: 'analyze', progress: 80, message: '整理媒体信息' })
+      const libraryItem = await addDownloadedResourceToLibrary(resource, filePath, finalUrl)
+
+      emitProgress({ phase: 'library', progress: 100, message: '已添加到素材库' })
+      downloadResults[index] = {
+        id: resource.id,
+        success: true,
+        filePath,
+        finalUrl,
+        libraryItem
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      emitProgress({ phase: 'download', progress: 0, message: errorMessage })
+      downloadResults[index] = {
+        id: resource.id,
+        success: false,
+        errorMessage
+      }
+    }
+  })
+
+  return {
+    success: true,
+    downloadedCount: downloadResults.filter((item) => item?.success).length,
+    items: downloadResults
+  }
+}
+
 export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promise<{
   success: true
   mergedCount: number

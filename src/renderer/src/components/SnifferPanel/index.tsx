@@ -175,10 +175,24 @@ export default function SnifferPanel({
     },
     {
       key: 'delete',
-      label: '删除',
-      icon: <DeleteOutlined />,
-      disabled: selectedCount === 0,
-      onClick: () => onDeleteSelected?.()
+      label: (
+        <Popconfirm
+          title={`确定删除已选中的 ${selectedCount} 个资源吗？`}
+          onConfirm={() => onDeleteSelected?.()}
+          okText="删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+        >
+          <span
+            onClick={(event) => event.stopPropagation()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          >
+            <DeleteOutlined />
+            删除
+          </span>
+        </Popconfirm>
+      ),
+      disabled: selectedCount === 0
     }
   ]
 

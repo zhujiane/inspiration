@@ -91,6 +91,7 @@ function createDownloadTask(resource: MediaResource, index: number): DownloadTas
   return {
     id: `${resource.id}-${index}`,
     title: resource.title,
+    type: resource.type,
     coverUrl: resource.thumbnailUrl || (resource.type === 'image' ? resource.url : undefined),
     metrics: [resource.size, resource.resolution, resource.duration].filter(Boolean) as string[],
     progress: 0,
@@ -673,21 +674,10 @@ function App(): React.JSX.Element {
       return
     }
 
-    Modal.confirm({
-      title: `确定删除已选中的 ${selectedResources.length} 个资源吗？`,
-      content: '该操作只会从当前嗅探结果中移除，不会删除素材库中的文件。',
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: () => {
-        const selectedIds = new Set(selectedResources.map((resource) => resource.id))
-        setResources((prev) => prev.filter((resource) => !selectedIds.has(resource.id)))
-        setDownloadTasks((prev) => prev.filter((task) => !selectedIds.has(task.resource.id)))
-        setMergeTasks((prev) =>
-          prev.filter((task) => !selectedIds.has(task.video.id) && !selectedIds.has(task.audio.id))
-        )
-      }
-    })
+    const selectedIds = new Set(selectedResources.map((resource) => resource.id))
+    setResources((prev) => prev.filter((resource) => !selectedIds.has(resource.id)))
+    setDownloadTasks((prev) => prev.filter((task) => !selectedIds.has(task.resource.id)))
+    setMergeTasks((prev) => prev.filter((task) => !selectedIds.has(task.video.id) && !selectedIds.has(task.audio.id)))
   }, [resources])
 
   const handleResourcePreview = useCallback(
@@ -730,7 +720,17 @@ function App(): React.JSX.Element {
       return
     }
 
-    setDownloadTasks(selectedResources.map((resource, index) => createDownloadTask(resource, index)))
+    const pendingResources = selectedResources.filter((resource) => !resource.downloaded)
+    if (pendingResources.length === 0) {
+      message.warning('选中的资源已下载，无需重复加入下载列表')
+      return
+    }
+
+    if (pendingResources.length !== selectedResources.length) {
+      message.info(`已跳过 ${selectedResources.length - pendingResources.length} 个已下载资源`)
+    }
+
+    setDownloadTasks(pendingResources.map((resource, index) => createDownloadTask(resource, index)))
     setDownloadModalVisible(true)
   }, [resources])
 
@@ -739,59 +739,61 @@ function App(): React.JSX.Element {
     if (tasksToRun.length === 0) return
 
     setDownloadSubmitting(true)
+    const taskIdsToRun = new Set(tasksToRun.map((task) => task.id))
     const downloadedIds = new Set<string>()
     let downloadedCount = 0
 
-    try {
-      for (const task of tasksToRun) {
-        setDownloadTasks((prev) =>
-          prev.map((item) =>
-            item.id === task.id
-              ? {
-                  ...item,
-                  status: 'processing' as BatchActionItemStatus,
-                  statusText: '下载中',
-                  progress: 15,
-                  errorMessage: undefined
-                }
-              : item
-          )
-        )
+    setDownloadTasks((prev) =>
+      prev.map((item) =>
+        taskIdsToRun.has(item.id)
+          ? {
+              ...item,
+              status: 'processing' as BatchActionItemStatus,
+              statusText: '下载中',
+              progress: 15,
+              errorMessage: undefined
+            }
+          : item
+      )
+    )
 
-        try {
-          await downloadResource(task.resource)
+    try {
+      const result = await trpc.sniffer.downloadSelected.mutate({
+        resources: tasksToRun.map((task) => task.resource)
+      })
+
+      const resultMap = new Map(result.items.map((item) => [item.id, item]))
+      for (const task of tasksToRun) {
+        const taskResult = resultMap.get(task.resource.id)
+        if (taskResult?.success) {
           downloadedIds.add(task.resource.id)
           downloadedCount += 1
-
-          setDownloadTasks((prev) =>
-            prev.map((item) =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status: 'success' as BatchActionItemStatus,
-                    statusText: '下载完成',
-                    progress: 100
-                  }
-                : item
-            )
-          )
-        } catch (error) {
-          console.error('Sniffer batch download failed:', error)
-          setDownloadTasks((prev) =>
-            prev.map((item) =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status: 'error' as BatchActionItemStatus,
-                    statusText: '下载失败',
-                    progress: 0,
-                    errorMessage: (error as Error)?.message || '下载失败，未添加到素材库'
-                  }
-                : item
-            )
-          )
+        } else {
+          console.error('Sniffer batch download failed:', taskResult?.errorMessage || 'Unknown download error')
         }
       }
+
+      setDownloadTasks((prev) =>
+        prev.map((item) => {
+          if (!taskIdsToRun.has(item.id)) return item
+          const taskResult = resultMap.get(item.resource.id)
+          if (taskResult?.success) {
+            return {
+              ...item,
+              status: 'success' as BatchActionItemStatus,
+              statusText: '下载完成',
+              progress: 100
+            }
+          }
+          return {
+            ...item,
+            status: 'error' as BatchActionItemStatus,
+            statusText: '下载失败',
+            progress: 0,
+            errorMessage: taskResult?.errorMessage || '下载失败，未添加到素材库'
+          }
+        })
+      )
 
       if (downloadedCount > 0) {
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
@@ -812,10 +814,26 @@ function App(): React.JSX.Element {
       if (tasksToRun.length !== downloadedCount) {
         message.error('部分资源下载失败，请查看详情后重试')
       }
+    } catch (error) {
+      console.error('Sniffer batch download failed:', error)
+      setDownloadTasks((prev) =>
+        prev.map((item) =>
+          taskIdsToRun.has(item.id)
+            ? {
+                ...item,
+                status: 'error' as BatchActionItemStatus,
+                statusText: '下载失败',
+                progress: 0,
+                errorMessage: (error as Error)?.message || '下载失败，未添加到素材库'
+              }
+            : item
+        )
+      )
+      message.error((error as Error)?.message || '下载失败，未添加到素材库')
     } finally {
       setDownloadSubmitting(false)
     }
-  }, [downloadResource, downloadTasks])
+  }, [downloadTasks])
 
   const handleMergeOpen = useCallback(() => {
     const selectedResources = resources.filter(
@@ -1003,13 +1021,14 @@ function App(): React.JSX.Element {
         const nextResource = resourceMap.get(task.resource.id) ?? task.resource
         const nextCoverUrl = nextResource.thumbnailUrl || (nextResource.type === 'image' ? nextResource.url : undefined)
 
-        if (task.resource === nextResource && task.coverUrl === nextCoverUrl) {
+        if (task.resource === nextResource && task.coverUrl === nextCoverUrl && task.type === nextResource.type) {
           return task
         }
 
         return {
           ...task,
           resource: nextResource,
+          type: nextResource.type,
           coverUrl: nextCoverUrl
         }
       })

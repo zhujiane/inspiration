@@ -2,7 +2,12 @@ import { statsOf } from './state'
 import { snifferStates } from './runtime'
 import { registerSnifferIpc } from './ipc'
 import { resetInterception, startInterception, stopInterception } from './interception'
-import { addDownloadedResourceToLibrary, downloadRemoteResource, mergeSelectedTasks } from './download'
+import {
+  addDownloadedResourceToLibrary,
+  downloadRemoteResource,
+  downloadSelectedTasks,
+  mergeSelectedTasks
+} from './download'
 import { broadcastDownloadProgress } from './broadcast'
 import type { SnifferDownloadProgressPayload } from '../../types/sniffer-types'
 import type {
@@ -52,4 +57,15 @@ export async function mergeSelectedToLibrary(tasks: SnifferMergeTaskInput[]): Pr
   >
 }> {
   return mergeSelectedTasks(tasks)
+}
+
+export async function downloadSelectedToLibrary(resources: SnifferDownloadResourceInput[]): Promise<{
+  success: true
+  downloadedCount: number
+  items: Array<
+    | { id: string; success: true; filePath: string; finalUrl: string; libraryItem: any }
+    | { id: string; success: false; errorMessage: string }
+  >
+}> {
+  return downloadSelectedTasks(resources)
 }

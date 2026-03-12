@@ -213,9 +213,9 @@ export default function MediaCard({
               {resource.downloaded ? (
                 <span
                   style={{
-                    borderRadius: 4,
-                    padding: '2px 8px',
-                    background: 'rgba(24, 144, 255, 0.92)',
+                    borderRadius: 10,
+                    padding: '2px 4px',
+                    background: 'rgba(144, 154, 138, 0.92)',
                     color: '#fff',
                     fontSize: 9,
                     fontWeight: 500
@@ -227,8 +227,8 @@ export default function MediaCard({
               {resource.merged ? (
                 <span
                   style={{
-                    borderRadius: 4,
-                    padding: '2px 8px',
+                    borderRadius: 10,
+                    padding: '2px 4px',
                     background: 'rgba(144, 154, 138, 0.92)',
                     color: '#fff',
                     fontSize: 9,

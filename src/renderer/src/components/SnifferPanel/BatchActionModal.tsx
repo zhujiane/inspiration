@@ -1,10 +1,13 @@
+import { SoundOutlined } from '@ant-design/icons'
 import { Button, Modal, Progress } from 'antd'
 
 export type BatchActionItemStatus = 'pending' | 'processing' | 'success' | 'error'
+export type BatchActionItemType = 'image' | 'video' | 'audio'
 
 export interface BatchActionItem {
   id: string
   title: string
+  type?: BatchActionItemType
   coverUrl?: string
   metrics?: string[]
   progress: number
@@ -110,6 +113,19 @@ export default function BatchActionModal({
                     alt={item.title}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
+                ) : item.type === 'audio' ? (
+                  <span
+                    aria-label="音频"
+                    style={{
+                      color: 'var(--color-text-tertiary)',
+                      fontSize: 24,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <SoundOutlined />
+                  </span>
                 ) : (
                   <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>无封面</span>
                 )}
