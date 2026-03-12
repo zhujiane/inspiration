@@ -17,6 +17,7 @@ import {
   ClearOutlined,
   MergeCellsOutlined,
   DownloadOutlined,
+  DeleteOutlined,
   LeftOutlined,
   RightOutlined,
   FilterOutlined,
@@ -82,8 +83,9 @@ interface SnifferPanelProps {
   onActiveChange?: (active: boolean) => void
   onSearchChange?: (text: string) => void
   onSelectAll?: () => void
-  onInvertSelect?: () => void
+  onClearSelection?: () => void
   onClearAll?: () => void
+  onDeleteSelected?: () => void
   onMerge?: () => void
   onMergeCancel?: () => void
   onMergeConfirm?: () => void
@@ -118,8 +120,10 @@ export default function SnifferPanel({
   onToggle,
   onActiveChange,
   onSearchChange,
-  onInvertSelect,
+  onSelectAll,
+  onClearSelection,
   onClearAll,
+  onDeleteSelected,
   onMerge,
   onMergeCancel,
   onMergeConfirm,
@@ -145,6 +149,7 @@ export default function SnifferPanel({
     }
   }, [advancedFilters, advancedModalVisible])
   const selectedCount = resources.filter((r) => r.selected).length
+  const allSelected = resources.length > 0 && selectedCount === resources.length
 
   // 优先使用主进程广播的精确值，兼容旧版 fallback 到差值推算
   const analyzing =
@@ -167,6 +172,13 @@ export default function SnifferPanel({
       label: '下载',
       icon: <DownloadOutlined />,
       onClick: () => onBatchDownload?.()
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      icon: <DeleteOutlined />,
+      disabled: selectedCount === 0,
+      onClick: () => onDeleteSelected?.()
     }
   ]
 
@@ -274,9 +286,13 @@ export default function SnifferPanel({
           {/* ── Toolbar ── */}
           <div className="sniffer-panel__toolbar">
             <div className="sniffer-panel__toolbar-group">
-              <Tooltip title="全选" mouseEnterDelay={0.5}>
-                <button className="sniffer-panel__toolbar-btn" onClick={onInvertSelect} aria-label="反选">
-                  <CheckSquareOutlined />
+              <Tooltip title={allSelected ? '清除选择' : '选中全部'} mouseEnterDelay={0.5}>
+                <button
+                  className="sniffer-panel__toolbar-btn"
+                  onClick={allSelected ? onClearSelection : onSelectAll}
+                  aria-label={allSelected ? '清除选择' : '选中全部'}
+                >
+                  {allSelected ? <CloseOutlined /> : <CheckSquareOutlined />}
                 </button>
               </Tooltip>
               <Popconfirm title="确定清空吗？" onConfirm={onClearAll} okText="确定" cancelText="取消">

@@ -27,6 +27,7 @@ export interface MediaResource {
   requestHeaders?: Record<string, string>
   selected?: boolean
   merged?: boolean
+  downloaded?: boolean
 }
 
 interface MediaCardProps {
@@ -170,23 +171,46 @@ export default function MediaCard({
             <span>{typeLabels[displayType]}</span>
           </span>
 
-          {resource.merged ? (
-            <span
+          {(resource.downloaded || resource.merged) && (
+            <div
               style={{
                 position: 'absolute',
                 top: 4,
                 right: 50,
-                borderRadius: 4,
-                padding: '2px 8px',
-                background: 'rgba(144, 154, 138, 0.92)',
-                color: '#fff',
-                fontSize: 9,
-                fontWeight: 500
+                display: 'flex',
+                gap: 4
               }}
             >
-              已合并
-            </span>
-          ) : null}
+              {resource.downloaded ? (
+                <span
+                  style={{
+                    borderRadius: 4,
+                    padding: '2px 8px',
+                    background: 'rgba(24, 144, 255, 0.92)',
+                    color: '#fff',
+                    fontSize: 9,
+                    fontWeight: 500
+                  }}
+                >
+                  已下载
+                </span>
+              ) : null}
+              {resource.merged ? (
+                <span
+                  style={{
+                    borderRadius: 4,
+                    padding: '2px 8px',
+                    background: 'rgba(144, 154, 138, 0.92)',
+                    color: '#fff',
+                    fontSize: 9,
+                    fontWeight: 500
+                  }}
+                >
+                  已合并
+                </span>
+              ) : null}
+            </div>
+          )}
 
           <div className="media-card__overlay-info">
             <span className="media-card__overlay-text" title={resource.title}>

@@ -190,7 +190,8 @@ function App(): React.JSX.Element {
           ...resource,
           id: existing.id,
           selected: existing.selected,
-          merged: existing.merged
+          merged: existing.merged,
+          downloaded: existing.downloaded
         }
         const next = [...prev]
         next[existingIndex] = merged
@@ -641,10 +642,9 @@ function App(): React.JSX.Element {
     setResources((prev) => prev.map((r) => (visibleIds.has(r.id) ? { ...r, selected: true } : r)))
   }, [filteredResources])
 
-  const handleInvertSelect = useCallback(() => {
-    const visibleIds = new Set(filteredResources.map((r) => r.id))
-    setResources((prev) => prev.map((r) => (visibleIds.has(r.id) ? { ...r, selected: !r.selected } : r)))
-  }, [filteredResources])
+  const handleClearSelection = useCallback(() => {
+    setResources((prev) => prev.map((r) => (r.selected ? { ...r, selected: false } : r)))
+  }, [])
 
   const handleClearAll = useCallback(() => {
     setResources([])
@@ -666,6 +666,30 @@ function App(): React.JSX.Element {
     setResources((prev) => prev.filter((r) => r.id !== id))
   }, [])
 
+  const handleDeleteSelected = useCallback(() => {
+    const selectedResources = resources.filter((r) => r.selected)
+    if (selectedResources.length === 0) {
+      message.warning('请至少选择一个资源')
+      return
+    }
+
+    Modal.confirm({
+      title: `确定删除已选中的 ${selectedResources.length} 个资源吗？`,
+      content: '该操作只会从当前嗅探结果中移除，不会删除素材库中的文件。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        const selectedIds = new Set(selectedResources.map((resource) => resource.id))
+        setResources((prev) => prev.filter((resource) => !selectedIds.has(resource.id)))
+        setDownloadTasks((prev) => prev.filter((task) => !selectedIds.has(task.resource.id)))
+        setMergeTasks((prev) =>
+          prev.filter((task) => !selectedIds.has(task.video.id) && !selectedIds.has(task.audio.id))
+        )
+      }
+    })
+  }, [resources])
+
   const handleResourcePreview = useCallback(
     (id: string) => {
       const res = resources.find((r) => r.id === id)
@@ -686,6 +710,9 @@ function App(): React.JSX.Element {
       if (!res) return
       try {
         await downloadResource(res)
+        setResources((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, downloaded: true, selected: false } : item))
+        )
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
         message.success('下载完成，已添加到素材库')
       } catch (error) {
@@ -768,7 +795,17 @@ function App(): React.JSX.Element {
 
       if (downloadedCount > 0) {
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
-        setResources((prev) => prev.map((item) => (downloadedIds.has(item.id) ? { ...item, selected: false } : item)))
+        setResources((prev) =>
+          prev.map((item) =>
+            downloadedIds.has(item.id)
+              ? {
+                  ...item,
+                  downloaded: true,
+                  selected: false
+                }
+              : item
+          )
+        )
         message.success(`下载完成，已自动添加 ${downloadedCount} 个素材到素材库`)
       }
 
@@ -1044,8 +1081,9 @@ function App(): React.JSX.Element {
                 }}
                 onSearchChange={setSnifferSearch}
                 onSelectAll={handleSelectAll}
-                onInvertSelect={handleInvertSelect}
+                onClearSelection={handleClearSelection}
                 onClearAll={handleClearAll}
+                onDeleteSelected={handleDeleteSelected}
                 onMerge={handleMergeOpen}
                 onMergeCancel={() => !mergeSubmitting && setMergeModalVisible(false)}
                 onMergeConfirm={handleMergeConfirm}
