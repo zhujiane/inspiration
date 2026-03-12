@@ -174,7 +174,7 @@ function App(): React.JSX.Element {
 
   // ---------- IPC listeners from main process ----------
   useEffect(() => {
-    const bridge = (window as any).snifferBridge
+    const bridge = window.snifferBridge
     if (!bridge) return
 
     const unsubResource = bridge.onResource((data: any) => {

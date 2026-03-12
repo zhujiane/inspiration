@@ -37,10 +37,7 @@ interface MediaCardProps {
   onPreview?: (id: string) => void
   onDownload?: (id: string) => void
   onCopyUrl?: (id: string) => void
-  onMetadataChange?: (
-    id: string,
-    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>
-  ) => void
+  onMetadataChange?: (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>) => void
 }
 
 const typeIcons = {
