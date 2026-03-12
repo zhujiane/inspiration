@@ -1,8 +1,10 @@
+import { spawn } from 'child_process'
 import { app } from 'electron'
 import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { db } from '@main/db'
+import ffmpegStatic from 'ffmpeg-static'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
@@ -14,6 +16,7 @@ import { DEFAULT_USER_AGENT } from './constants'
 import {
   extFromUrl,
   filenameFromContentDisposition,
+  getHeaderValue,
   guessExtensionFromContentType,
   inferPlatform,
   mapResourceType,
@@ -29,6 +32,199 @@ import type {
 } from '../../types/sniffer-types'
 
 const DOWNLOAD_TIMEOUT_MS = 60_000
+const FFMPEG_DOWNLOAD_TIMEOUT_MS = 30 * 60_000
+const HLS_CONTENT_TYPES = new Set([
+  'application/vnd.apple.mpegurl',
+  'application/x-mpegurl',
+  'audio/mpegurl',
+  'audio/x-mpegurl'
+])
+const MAX_CONCURRENT_HLS_DOWNLOADS = 1
+
+let activeHlsDownloads = 0
+const pendingHlsDownloadResolvers: Array<() => void> = []
+
+function isHlsContentType(contentType?: string): boolean {
+  if (!contentType) return false
+  return HLS_CONTENT_TYPES.has(contentType.toLowerCase().split(';')[0].trim())
+}
+
+function isHlsResource(resource: SnifferDownloadResourceInput): boolean {
+  return isHlsContentType(resource.contentType) || /\.m3u8(?:$|[?#])/i.test(resource.url)
+}
+
+async function withHlsDownloadSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeHlsDownloads >= MAX_CONCURRENT_HLS_DOWNLOADS) {
+    await new Promise<void>((resolve) => {
+      pendingHlsDownloadResolvers.push(resolve)
+    })
+  }
+
+  activeHlsDownloads++
+  try {
+    return await task()
+  } finally {
+    activeHlsDownloads = Math.max(0, activeHlsDownloads - 1)
+    const nextResolver = pendingHlsDownloadResolvers.shift()
+    nextResolver?.()
+  }
+}
+
+async function readResponseText(response: NodeJS.ReadableStream, maxBytes = 1024 * 1024): Promise<string> {
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+
+  for await (const chunk of response) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    totalBytes += buffer.length
+    if (totalBytes > maxBytes) {
+      throw new Error('Manifest is too large to inspect')
+    }
+    chunks.push(buffer)
+  }
+
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function inspectHlsManifest(
+  url: string,
+  headers: Record<string, string>
+): Promise<{ finalUrl: string; contentType: string; isLive: boolean }> {
+  const { response, finalUrl } = await withRetry(
+    () => requestWithRedirect(url, { method: 'GET', headers, timeout: DOWNLOAD_TIMEOUT_MS }),
+    { retries: 2, delayMs: 1_000 }
+  )
+
+  const manifestText = await readResponseText(response)
+  const contentType = String(response.headers['content-type'] || '')
+  const normalizedManifest = manifestText.toUpperCase()
+  const isVodManifest =
+    normalizedManifest.includes('#EXT-X-ENDLIST') || normalizedManifest.includes('#EXT-X-PLAYLIST-TYPE:VOD')
+
+  return {
+    finalUrl,
+    contentType,
+    isLive: !isVodManifest
+  }
+}
+
+function getFfmpegPath(): string {
+  if (!ffmpegStatic) {
+    throw new Error('ffmpeg binary is not available')
+  }
+  return ffmpegStatic
+}
+
+function buildFfmpegInputArgs(headers: Record<string, string>): string[] {
+  const args: string[] = []
+  const userAgent = getHeaderValue(headers, 'user-agent') || DEFAULT_USER_AGENT
+  const referer = getHeaderValue(headers, 'referer')
+  const headerLines = Object.entries(headers)
+    .filter(([key]) => {
+      const normalizedKey = key.toLowerCase()
+      return normalizedKey !== 'user-agent' && normalizedKey !== 'referer'
+    })
+    .map(([key, value]) => `${key}: ${value}`)
+
+  args.push('-user_agent', userAgent)
+  if (referer) {
+    args.push('-referer', referer)
+  }
+  if (headerLines.length > 0) {
+    args.push('-headers', `${headerLines.join('\r\n')}\r\n`)
+  }
+
+  return args
+}
+
+async function runFfmpegDownload(args: string[], timeoutMs = FFMPEG_DOWNLOAD_TIMEOUT_MS): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const ffmpegPath = getFfmpegPath()
+    const child = spawn(ffmpegPath, args, { windowsHide: true })
+    const stderrChunks: Buffer[] = []
+    let settled = false
+
+    const finish = (handler: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      handler()
+    }
+
+    const timer = setTimeout(() => {
+      finish(() => {
+        child.kill('SIGKILL')
+        reject(new Error('ffmpeg download timeout'))
+      })
+    }, timeoutMs)
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk)
+    })
+
+    child.on('error', (error) => {
+      finish(() => reject(error))
+    })
+
+    child.on('close', (code) => {
+      finish(() => {
+        if (code === 0) {
+          resolve()
+          return
+        }
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim()
+        reject(new Error(stderr || `ffmpeg exited with code ${code}`))
+      })
+    })
+  })
+}
+
+async function downloadHlsResource(
+  resource: SnifferDownloadResourceInput,
+  suffix = ''
+): Promise<{ filePath: string; fileName: string; finalUrl: string }> {
+  const headers = {
+    'User-Agent': DEFAULT_USER_AGENT,
+    ...(sanitizeHeaders(resource.requestHeaders) ?? {})
+  }
+
+  const manifest = await inspectHlsManifest(resource.url, headers)
+  if (manifest.isLive) {
+    throw new Error('暂不支持直播 m3u8 下载，请使用回放/VOD 链接后重试')
+  }
+
+  const targetExt = resource.type === 'audio' ? '.m4a' : '.mp4'
+  const { filePath, fileName, finalUrl } = await resolveDownloadTarget(resource, suffix, {
+    preferredExtension: targetExt,
+    finalUrl: manifest.finalUrl,
+    head: {
+      contentType: manifest.contentType || resource.contentType || 'application/vnd.apple.mpegurl',
+      contentLength: 0,
+      acceptRanges: false
+    }
+  })
+
+  await withHlsDownloadSlot(async () => {
+    const ffmpegArgs = [
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      ...buildFfmpegInputArgs(headers),
+      '-i',
+      manifest.finalUrl
+    ]
+
+    if (resource.type === 'audio') {
+      ffmpegArgs.push('-map', '0:a:0?', '-vn')
+    }
+
+    ffmpegArgs.push('-c', 'copy', filePath)
+    await runFfmpegDownload(ffmpegArgs)
+  })
+
+  return { filePath, fileName, finalUrl }
+}
 
 function parseDurationText(raw?: string): number | undefined {
   if (!raw) return undefined
@@ -278,7 +474,18 @@ async function chunkedDownload(
 
 async function resolveDownloadTarget(
   resource: SnifferDownloadResourceInput,
-  suffix = ''
+  suffix = '',
+  options?: {
+    preferredExtension?: string
+    finalUrl?: string
+    head?: {
+      contentType: string
+      contentLength: number
+      acceptRanges: boolean
+      contentDisposition?: string
+      finalUrl?: string
+    }
+  }
 ): Promise<{
   downloadDir: string
   filePath: string
@@ -291,15 +498,17 @@ async function resolveDownloadTarget(
     'User-Agent': DEFAULT_USER_AGENT,
     ...(sanitizeHeaders(resource.requestHeaders) ?? {})
   }
-  const head = await headRequest(resource.url, headers)
+  const head = options?.head ?? (await headRequest(resource.url, headers))
+  const finalUrl = options?.finalUrl || head.finalUrl || resource.url
 
   const fileNameBase =
     filenameFromContentDisposition(head.contentDisposition) ||
     `${sanitizeFilename(resource.title || titleFromUrl(resource.url))}${suffix}`
 
   const ext =
+    options?.preferredExtension ||
     path.extname(fileNameBase) ||
-    extFromUrl(head.finalUrl || resource.url) ||
+    extFromUrl(finalUrl) ||
     extFromUrl(resource.url) ||
     guessExtensionFromContentType(resource.contentType || head.contentType) ||
     (resource.type === 'video' ? '.mp4' : resource.type === 'audio' ? '.m4a' : '.jpg')
@@ -312,7 +521,7 @@ async function resolveDownloadTarget(
     downloadDir,
     fileName: path.basename(filePath),
     filePath,
-    finalUrl: head.finalUrl || resource.url,
+    finalUrl,
     head: {
       contentType: head.contentType,
       contentLength: head.contentLength,
@@ -326,6 +535,10 @@ export async function downloadRemoteResource(
   resource: SnifferDownloadResourceInput,
   suffix = ''
 ): Promise<{ filePath: string; fileName: string; finalUrl: string }> {
+  if (isHlsResource(resource)) {
+    return downloadHlsResource(resource, suffix)
+  }
+
   const headers = {
     'User-Agent': DEFAULT_USER_AGENT,
     ...(sanitizeHeaders(resource.requestHeaders) ?? {})

@@ -7,8 +7,55 @@ import log from './logger'
 
 const BLOCKED_PROTOCOLS = ['bitbrowser', 'bytedance', 'snssdk1128', 'snssdk1233', 'snssdk']
 const SNIFFER_MEDIA_SCHEME = 'sniffer-media'
+const HLS_CONTENT_TYPES = new Set([
+  'application/vnd.apple.mpegurl',
+  'application/x-mpegurl',
+  'audio/mpegurl',
+  'audio/x-mpegurl'
+])
 
 const isBlockedProtocolUrl = (url: string): boolean => BLOCKED_PROTOCOLS.some((scheme) => url.startsWith(`${scheme}:`))
+
+const isHlsManifestUrl = (url: string): boolean => /\.m3u8(?:$|[?#])/i.test(url)
+
+const isHlsManifestContentType = (contentType: string): boolean =>
+  HLS_CONTENT_TYPES.has(contentType.toLowerCase().split(';')[0].trim())
+
+const buildSnifferProxyUrl = (target: string, headers: Record<string, string>): string => {
+  const search = new URLSearchParams()
+  search.set('url', target)
+  if (Object.keys(headers).length > 0) {
+    search.set('headers', encodeURIComponent(JSON.stringify(headers)))
+  }
+  return `${SNIFFER_MEDIA_SCHEME}://preview?${search.toString()}`
+}
+
+const rewriteHlsManifest = (manifest: string, manifestUrl: string, headers: Record<string, string>): string =>
+  manifest
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return line
+
+      if (trimmed.startsWith('#')) {
+        return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => {
+          try {
+            const absoluteUrl = new URL(uri, manifestUrl).toString()
+            return `URI="${buildSnifferProxyUrl(absoluteUrl, headers)}"`
+          } catch {
+            return `URI="${uri}"`
+          }
+        })
+      }
+
+      try {
+        const absoluteUrl = new URL(trimmed, manifestUrl).toString()
+        return buildSnifferProxyUrl(absoluteUrl, headers)
+      } catch {
+        return line
+      }
+    })
+    .join('\n')
 
 const isSafeExternalUrl = (url: string): boolean => {
   try {
@@ -161,6 +208,26 @@ export const setupWebContentPolicies = (mainWindow: BrowserWindow): void => {
       return fetch(target, {
         method: request.method,
         headers: forwardedHeaders
+      }).then(async (response) => {
+        const contentType = response.headers.get('content-type') || ''
+        const shouldRewriteManifest =
+          request.method === 'GET' && (isHlsManifestUrl(response.url || target) || isHlsManifestContentType(contentType))
+
+        if (!shouldRewriteManifest) {
+          return response
+        }
+
+        const rewrittenManifest = rewriteHlsManifest(await response.text(), response.url || target, forwardedHeaders)
+        const responseHeaders = new Headers(response.headers)
+        responseHeaders.set('Content-Type', contentType || 'application/vnd.apple.mpegurl')
+        responseHeaders.delete('Content-Length')
+        responseHeaders.set('Cache-Control', 'no-store')
+
+        return new Response(rewrittenManifest, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders
+        })
       })
     })
   } catch (error) {

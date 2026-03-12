@@ -11,6 +11,7 @@ import {
   VideoCameraOutlined
 } from '@ant-design/icons'
 import { buildPreviewProxyUrl } from '../../lib/media'
+import SmartVideo, { type SmartVideoMetadata } from '../Media/SmartVideo'
 
 export interface MediaResource {
   id: string
@@ -80,7 +81,6 @@ export default function MediaCard({
   const [metaResolution, setMetaResolution] = useState(resource.resolution)
   const [metaDuration, setMetaDuration] = useState(resource.duration)
   const capturedThumbnailRef = useRef(false)
-  const previewUrl = buildPreviewProxyUrl(resource.url, resource.requestHeaders)
   const previewThumbnailUrl = buildPreviewProxyUrl(resource.thumbnailUrl || resource.url, resource.requestHeaders)
 
   useEffect(() => {
@@ -108,6 +108,26 @@ export default function MediaCard({
 
     if (Number.isFinite(video.duration) && video.duration > 0) {
       const duration = formatDuration(video.duration)
+      setMetaDuration(duration)
+      nextMetadata.duration = duration
+    }
+
+    if (Object.keys(nextMetadata).length > 0) {
+      onMetadataChange?.(resource.id, nextMetadata)
+    }
+  }
+
+  const handleStreamMetadata = (metadata: SmartVideoMetadata) => {
+    const nextMetadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>> = {}
+
+    if (metadata.width && metadata.height) {
+      const resolution = `${metadata.width}×${metadata.height}`
+      setMetaResolution(resolution)
+      nextMetadata.resolution = resolution
+    }
+
+    if (Number.isFinite(metadata.duration) && (metadata.duration ?? 0) > 0) {
+      const duration = formatDuration(metadata.duration!)
       setMetaDuration(duration)
       nextMetadata.duration = duration
     }
@@ -171,15 +191,16 @@ export default function MediaCard({
             />
           ) : (
             <>
-              <video
-                src={previewUrl}
+              <SmartVideo
+                src={resource.url}
+                contentType={resource.contentType}
+                requestHeaders={resource.requestHeaders}
                 preload="auto"
                 muted
                 playsInline
-                crossOrigin="anonymous"
-                style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#f7f2f2' }}
                 onLoadedMetadata={handleLoadedMetadata}
                 onLoadedData={handleLoadedData}
+                onMetadata={handleStreamMetadata}
               />
               {displayType === 'audio' && (
                 <span className="media-card__thumbnail-placeholder media-card__thumbnail-placeholder--media">

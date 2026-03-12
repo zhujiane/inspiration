@@ -1,5 +1,6 @@
 import { Modal } from 'antd'
 import { buildPreviewProxyUrl, normalizeMediaSrc } from '../../lib/media'
+import SmartVideo from '../Media/SmartVideo'
 
 export interface PreviewModalProps {
   open: boolean
@@ -8,10 +9,20 @@ export interface PreviewModalProps {
   type?: 'video' | 'image' | 'audio' | string
   src?: string
   cover?: string
+  contentType?: string
   requestHeaders?: Record<string, string>
 }
 
-export default function PreviewModal({ open, onCancel, title, type, src, cover, requestHeaders }: PreviewModalProps) {
+export default function PreviewModal({
+  open,
+  onCancel,
+  title,
+  type,
+  src,
+  cover,
+  contentType,
+  requestHeaders
+}: PreviewModalProps) {
   // Normalize type
   let mediaType = type
   if (type === '视频') mediaType = 'video'
@@ -43,7 +54,16 @@ export default function PreviewModal({ open, onCancel, title, type, src, cover, 
         }}
       >
         {mediaType === 'video' && actualSrc && (
-          <video src={previewSrc} controls autoPlay style={{ maxWidth: '100%', maxHeight: '70vh' }} />
+          <SmartVideo
+            src={src}
+            contentType={contentType}
+            requestHeaders={requestHeaders}
+            controls
+            autoPlay
+            playsInline
+            preload="auto"
+            style={{ maxWidth: '100%', maxHeight: '70vh', width: '100%', height: '100%', objectFit: 'contain' }}
+          />
         )}
         {mediaType === 'audio' && actualSrc && <audio src={previewSrc} controls autoPlay style={{ width: '80%' }} />}
         {mediaType === 'image' && (
