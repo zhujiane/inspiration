@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { Tooltip } from 'antd'
 import {
   DeleteOutlined,
@@ -37,7 +37,10 @@ interface MediaCardProps {
   onPreview?: (id: string) => void
   onDownload?: (id: string) => void
   onCopyUrl?: (id: string) => void
-  onMetadataChange?: (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>) => void
+  onMetadataChange?: (
+    id: string,
+    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>>
+  ) => void
 }
 
 const typeIcons = {
@@ -76,6 +79,7 @@ export default function MediaCard({
   const [displayType, setDisplayType] = useState<MediaResource['type']>(resource.type)
   const [metaResolution, setMetaResolution] = useState(resource.resolution)
   const [metaDuration, setMetaDuration] = useState(resource.duration)
+  const capturedThumbnailRef = useRef(false)
   const previewUrl = buildPreviewProxyUrl(resource.url, resource.requestHeaders)
   const previewThumbnailUrl = buildPreviewProxyUrl(resource.thumbnailUrl || resource.url, resource.requestHeaders)
 
@@ -83,11 +87,12 @@ export default function MediaCard({
     setDisplayType(resource.type)
     setMetaResolution(resource.resolution)
     setMetaDuration(resource.duration)
-  }, [resource.id, resource.type, resource.url, resource.resolution, resource.duration])
+    capturedThumbnailRef.current = Boolean(resource.thumbnailUrl)
+  }, [resource.id, resource.type, resource.url, resource.resolution, resource.duration, resource.thumbnailUrl])
 
   const handleLoadedMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget
-    const nextMetadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>> = {}
+    const nextMetadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>> = {}
 
     if (video.videoWidth <= 0 || video.videoHeight <= 0) {
       setDisplayType('audio')
@@ -109,6 +114,32 @@ export default function MediaCard({
 
     if (Object.keys(nextMetadata).length > 0) {
       onMetadataChange?.(resource.id, nextMetadata)
+    }
+  }
+
+  const handleLoadedData = (event: SyntheticEvent<HTMLVideoElement>) => {
+    if (resource.type !== 'video' || resource.thumbnailUrl || capturedThumbnailRef.current) {
+      return
+    }
+
+    const video = event.currentTarget
+    if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+      return
+    }
+
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const context = canvas.getContext('2d')
+      if (!context) return
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const thumbnailUrl = canvas.toDataURL('image/jpeg', 0.82)
+      capturedThumbnailRef.current = true
+      onMetadataChange?.(resource.id, { thumbnailUrl })
+    } catch (error) {
+      console.error('Capture video thumbnail failed:', error)
     }
   }
 
@@ -142,12 +173,13 @@ export default function MediaCard({
             <>
               <video
                 src={previewUrl}
-                preload="metadata"
+                preload="auto"
                 muted
                 playsInline
                 crossOrigin="anonymous"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#f7f2f2' }}
                 onLoadedMetadata={handleLoadedMetadata}
+                onLoadedData={handleLoadedData}
               />
               {displayType === 'audio' && (
                 <span className="media-card__thumbnail-placeholder media-card__thumbnail-placeholder--media">

@@ -101,7 +101,7 @@ interface SnifferPanelProps {
   onResourceCopyUrl?: (id: string) => void
   onResourceMetadataChange?: (
     id: string,
-    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>
+    metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>>
   ) => void
 }
 

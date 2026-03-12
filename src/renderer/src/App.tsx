@@ -952,7 +952,7 @@ function App(): React.JSX.Element {
   )
 
   const handleResourceMetadataChange = useCallback(
-    (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration'>>) => {
+    (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>>) => {
       setResources((prev) =>
         prev.map((resource) => {
           if (resource.id !== id) return resource
@@ -961,7 +961,8 @@ function App(): React.JSX.Element {
           if (
             next.type === resource.type &&
             next.resolution === resource.resolution &&
-            next.duration === resource.duration
+            next.duration === resource.duration &&
+            next.thumbnailUrl === resource.thumbnailUrl
           ) {
             return resource
           }
@@ -972,6 +973,48 @@ function App(): React.JSX.Element {
     },
     []
   )
+
+  useEffect(() => {
+    if (mergeTasks.length === 0 && downloadTasks.length === 0) return
+
+    const resourceMap = new Map(resources.map((resource) => [resource.id, resource]))
+
+    setMergeTasks((prev) =>
+      prev.map((task) => {
+        const nextVideo = resourceMap.get(task.video.id) ?? task.video
+        const nextAudio = resourceMap.get(task.audio.id) ?? task.audio
+        const nextCoverUrl = nextVideo.thumbnailUrl || nextVideo.url
+
+        if (task.video === nextVideo && task.audio === nextAudio && task.coverUrl === nextCoverUrl) {
+          return task
+        }
+
+        return {
+          ...task,
+          video: nextVideo,
+          audio: nextAudio,
+          coverUrl: nextCoverUrl
+        }
+      })
+    )
+
+    setDownloadTasks((prev) =>
+      prev.map((task) => {
+        const nextResource = resourceMap.get(task.resource.id) ?? task.resource
+        const nextCoverUrl = nextResource.thumbnailUrl || (nextResource.type === 'image' ? nextResource.url : undefined)
+
+        if (task.resource === nextResource && task.coverUrl === nextCoverUrl) {
+          return task
+        }
+
+        return {
+          ...task,
+          resource: nextResource,
+          coverUrl: nextCoverUrl
+        }
+      })
+    )
+  }, [resources, mergeTasks.length, downloadTasks.length])
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
