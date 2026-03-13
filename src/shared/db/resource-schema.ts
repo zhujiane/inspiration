@@ -11,7 +11,7 @@ export const resources = sqliteTable('resources', {
   localPath: text('local_path'),
   platform: text('platform'),
   cover: text('cover'),
-  metadata: text('metadata') // JSON string containing size, width, height, duration, encoding, md5, etc.
+  metadata: text('metadata') // JSON string containing size, width, height, duration, encoding, etc.
 })
 
 export type Resource = typeof resources.$inferSelect

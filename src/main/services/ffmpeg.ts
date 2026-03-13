@@ -1,13 +1,14 @@
-import { spawn } from 'child_process'
 import { createHash } from 'crypto'
+import { spawn } from 'child_process'
 import ffmpegStatic from 'ffmpeg-static'
-import ffprobeStatic from 'ffprobe-static'
+import mediaInfoFactory, { isTrackType, type MediaInfo, type MediaInfoResult } from 'mediainfo.js'
 import { promises as fs } from 'fs'
 import path from 'path'
 import log from './logger'
 import type { AnalyzeInput, AnalyzeResult, ProbeMetadata, ProbeStream } from '../types/ffmpeg-types'
 
-const ffprobePath = ffprobeStatic.path
+const mediaInfoWasmPath = require.resolve('mediainfo.js/MediaInfoModule.wasm')
+let mediaInfoInstancePromise: Promise<MediaInfo<'object'>> | null = null
 
 type SpawnResult = {
   stdout: Buffer
@@ -16,7 +17,6 @@ type SpawnResult = {
 
 const DEFAULT_TIMEOUT_MS = 15_000
 const FINGERPRINT_CHUNK_BYTES = 1024 * 1024
-
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
 
 const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'])
@@ -28,16 +28,141 @@ const getFfmpegPath = (): string => {
   return ffmpegStatic
 }
 
-const getFfprobePath = (): string => {
-  if (!ffprobePath) {
-    throw new Error('ffprobe binary is not available')
-  }
-  return ffprobePath
-}
-
 const assertLocalPath = (source: string): void => {
   if (isHttpUrl(source)) {
     throw new Error('仅支持本地文件')
+  }
+}
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> =>
+  await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timeout`))
+    }, timeoutMs)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+
+const getMediaInfo = async (): Promise<MediaInfo<'object'>> => {
+  if (!mediaInfoInstancePromise) {
+    mediaInfoInstancePromise = mediaInfoFactory<'object'>({
+      format: 'object',
+      locateFile: () => mediaInfoWasmPath
+    })
+  }
+
+  return mediaInfoInstancePromise
+}
+
+const normalizeCodecName = (...values: Array<unknown>): string | undefined => {
+  for (const value of values) {
+    const normalized = String(value ?? '')
+      .trim()
+      .toLowerCase()
+    if (normalized) {
+      return normalized
+    }
+  }
+  return undefined
+}
+
+const convertMediaInfoToProbeMetadata = (result: MediaInfoResult): ProbeMetadata => {
+  const tracks = result.media?.track ?? []
+  const generalTrack = tracks.find((track) => isTrackType(track, 'General'))
+  const primaryMediaTrack =
+    tracks.find((track) => isTrackType(track, 'Video')) ||
+    tracks.find((track) => isTrackType(track, 'Audio')) ||
+    tracks.find((track) => isTrackType(track, 'Image'))
+
+  const streams: ProbeStream[] = tracks.flatMap((track) => {
+    if (isTrackType(track, 'Video')) {
+      return [
+        {
+          codec_type: 'video',
+          width: track.Width,
+          height: track.Height,
+          codec_name: normalizeCodecName(track.Format_Commercial_IfAny, track.Format, track.CodecID, track.CodecID_Hint),
+          codec_tag_string: normalizeCodecName(track.CodecID),
+          disposition: {
+            attached_pic: false
+          }
+        }
+      ]
+    }
+
+    if (isTrackType(track, 'Audio')) {
+      return [
+        {
+          codec_type: 'audio',
+          codec_name: normalizeCodecName(track.Format_Commercial_IfAny, track.Format, track.CodecID, track.CodecID_Hint),
+          codec_tag_string: normalizeCodecName(track.CodecID)
+        }
+      ]
+    }
+
+    if (isTrackType(track, 'Image')) {
+      return [
+        {
+          codec_type: 'video',
+          width: track.Width,
+          height: track.Height,
+          codec_name: normalizeCodecName(track.Format_Commercial_IfAny, track.Format, track.CodecID),
+          codec_tag_string: normalizeCodecName(track.CodecID),
+          disposition: {
+            attached_pic: false
+          }
+        }
+      ]
+    }
+
+    return []
+  })
+
+  const durationSeconds =
+    typeof generalTrack?.Duration === 'number' && Number.isFinite(generalTrack.Duration)
+      ? generalTrack.Duration / 1000
+      : undefined
+
+  return {
+    format: {
+      format_name: normalizeCodecName(generalTrack?.Format, primaryMediaTrack?.Format),
+      duration: durationSeconds
+    },
+    streams
+  }
+}
+
+const runMediaInfo = async (source: string, timeoutMs: number): Promise<ProbeMetadata> => {
+  const fileHandle = await fs.open(source, 'r')
+
+  try {
+    const stats = await fileHandle.stat()
+    const mediaInfo = await getMediaInfo()
+    const result = await withTimeout(
+      mediaInfo.analyzeData(stats.size, async (size, offset) => {
+        const targetSize = Math.max(0, Math.min(size, stats.size - offset))
+        if (targetSize === 0) return new Uint8Array(0)
+
+        const chunk = Buffer.allocUnsafe(targetSize)
+        const { bytesRead } = await fileHandle.read(chunk, 0, targetSize, offset)
+        return new Uint8Array(chunk.buffer, chunk.byteOffset, bytesRead)
+      }),
+      timeoutMs,
+      'mediainfo'
+    )
+
+    return convertMediaInfoToProbeMetadata(result)
+  } finally {
+    await fileHandle.close()
   }
 }
 
@@ -111,12 +236,7 @@ export const runFfprobe = async (
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<any> => {
   assertLocalPath(source)
-  const args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', '-i', source]
-  const { stdout } = await runProcess(getFfprobePath(), args, {
-    timeoutMs,
-    stdoutLimitBytes: 2 * 1024 * 1024
-  })
-  return JSON.parse(stdout.toString('utf8'))
+  return runMediaInfo(source, timeoutMs)
 }
 
 export const captureVideoFrame = async (
@@ -155,38 +275,37 @@ export const mergeMediaTracks = async (
   outputPath: string,
   timeoutMs = 120_000
 ): Promise<void> => {
-  let audioCodec = ''
-  try {
-    const meta = await runFfprobe(audioPath, undefined, Math.min(timeoutMs, 15_000))
-    const stream = meta?.streams?.find((s: any) => s?.codec_type === 'audio')
-    audioCodec = String(stream?.codec_name ?? '').toLowerCase()
-  } catch (error) {
-    log.debug(`[FFmpeg] ffprobe audio failed, will fallback to aac encode: ${String(error)}`)
+  const runMerge = async (audioCodec: 'copy' | 'aac'): Promise<void> => {
+    const args = [
+      '-y',
+      '-v',
+      'error',
+      '-i',
+      videoPath,
+      '-i',
+      audioPath,
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'copy',
+      '-c:a',
+      audioCodec,
+      '-shortest',
+      outputPath
+    ]
+
+    log.debug('[FFmpeg] mergeMediaTracks', { audioCodec, videoPath, audioPath, outputPath })
+    await runProcess(getFfmpegPath(), args, { timeoutMs })
   }
 
-  const shouldCopyAudio = audioCodec === 'aac'
-  log.debug('[FFmpeg] mergeMediaTracks', { audioCodec, shouldCopyAudio, videoPath, audioPath, outputPath })
-
-  const args = [
-    '-y',
-    '-v',
-    'error',
-    '-i',
-    videoPath,
-    '-i',
-    audioPath,
-    '-map',
-    '0:v:0',
-    '-map',
-    '1:a:0',
-    '-c:v',
-    'copy',
-    '-c:a',
-    shouldCopyAudio ? 'copy' : 'aac',
-    '-shortest',
-    outputPath
-  ]
-  await runProcess(getFfmpegPath(), args, { timeoutMs })
+  try {
+    await runMerge('copy')
+  } catch (error) {
+    log.debug(`[FFmpeg] merge copy audio failed, fallback to aac encode: ${String(error)}`)
+    await runMerge('aac')
+  }
 }
 
 const parseDuration = (raw: unknown): number => {
@@ -230,7 +349,6 @@ const buildFileFingerprint = async (
           Math.min(FINGERPRINT_CHUNK_BYTES, size)
         )
 
-  // fingerprint = hash(fileSize + duration + width + height + hash(first 1MB) + hash(last 1MB))
   return md5(`${size}|${duration}|${width}|${height}|${firstHash}|${lastHash}`)
 }
 
@@ -296,8 +414,8 @@ export const analyzeMedia = async (input: AnalyzeInput): Promise<AnalyzeResult> 
   const audioStream = metadata.streams?.find((s) => s.codec_type === 'audio')
   const fileType = detectFileType(input.path, metadata)
   const duration = parseDuration(metadata.format?.duration)
-
   let fingerprint: string | undefined
+
   try {
     fingerprint = await buildFileFingerprint(input.path, {
       size: stats.size,

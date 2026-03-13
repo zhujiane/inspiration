@@ -265,7 +265,7 @@ async function buildLibraryMeta(
   const duration = parseDurationText(resource.duration)
   const { width, height } = parseResolutionText(resource.resolution)
 
-  // 默认优先复用嗅探阶段/HEAD 阶段已有数据，避免对本地文件做 ffprobe + md5（很重）
+  // 默认优先复用嗅探阶段/HEAD 阶段已有数据，避免对本地文件做额外分析
   const baseMeta: any = {
     type: resource.type,
     size: baseSize,
