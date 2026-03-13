@@ -211,7 +211,8 @@ export const setupWebContentPolicies = (mainWindow: BrowserWindow): void => {
       }).then(async (response) => {
         const contentType = response.headers.get('content-type') || ''
         const shouldRewriteManifest =
-          request.method === 'GET' && (isHlsManifestUrl(response.url || target) || isHlsManifestContentType(contentType))
+          request.method === 'GET' &&
+          (isHlsManifestUrl(response.url || target) || isHlsManifestContentType(contentType))
 
         if (!shouldRewriteManifest) {
           return response

@@ -16,7 +16,10 @@ export interface SmartVideoProps extends Omit<VideoHTMLAttributes<HTMLVideoEleme
   onMetadata?: (metadata: SmartVideoMetadata) => void
 }
 
-function emitManifestMetadata(levels: Array<{ width?: number; height?: number }>, onMetadata?: (metadata: SmartVideoMetadata) => void) {
+function emitManifestMetadata(
+  levels: Array<{ width?: number; height?: number }>,
+  onMetadata?: (metadata: SmartVideoMetadata) => void
+) {
   const firstLevelWithSize = levels.find((level) => (level.width ?? 0) > 0 && (level.height ?? 0) > 0)
   if (!firstLevelWithSize) return
 
@@ -64,7 +67,8 @@ export default function SmartVideo({
     hls.on(Events.LEVEL_LOADED, (_event, data) => {
       emitManifestMetadata([data.levelInfo], onMetadataRef.current)
       onMetadataRef.current?.({
-        duration: data.details.live || !Number.isFinite(data.details.totalduration) ? undefined : data.details.totalduration,
+        duration:
+          data.details.live || !Number.isFinite(data.details.totalduration) ? undefined : data.details.totalduration,
         live: data.details.live
       })
     })

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
-import { Tooltip } from 'antd'
+import { Progress, Tooltip } from 'antd'
 import {
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
   CopyOutlined,
+  LoadingOutlined,
   PlayCircleOutlined,
   SoundOutlined,
   PictureOutlined,
@@ -29,6 +30,9 @@ export interface MediaResource {
   selected?: boolean
   merged?: boolean
   downloaded?: boolean
+  downloadProgress?: number
+  downloadStatus?: 'idle' | 'pending' | 'processing' | 'success' | 'error'
+  downloadStatusText?: string
 }
 
 interface MediaCardProps {
@@ -82,6 +86,13 @@ export default function MediaCard({
   const [metaDuration, setMetaDuration] = useState(resource.duration)
   const capturedThumbnailRef = useRef(false)
   const previewThumbnailUrl = buildPreviewProxyUrl(resource.thumbnailUrl || resource.url, resource.requestHeaders)
+  const isDownloading = resource.downloadStatus === 'processing'
+  const showDownloadProgress = isDownloading || resource.downloadStatus === 'error'
+  const downloadTooltipTitle = isDownloading
+    ? resource.downloadStatusText || `下载中 ${resource.downloadProgress ?? 0}%`
+    : resource.downloaded || resource.merged
+      ? '重新下载'
+      : '下载'
 
   useEffect(() => {
     setDisplayType(resource.type)
@@ -270,6 +281,45 @@ export default function MediaCard({
               {[resource.size, metaResolution, metaDuration].filter(Boolean).join(' · ')}
             </span>
           </div>
+
+          {showDownloadProgress ? (
+            <div
+              style={{
+                position: 'absolute',
+                left: 8,
+                right: 8,
+                bottom: 52,
+                padding: '6px 8px',
+                borderRadius: 8,
+                background: 'rgba(0, 0, 0, 0.7)',
+                backdropFilter: 'blur(4px)'
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  marginBottom: 4,
+                  color: '#fff',
+                  fontSize: 11
+                }}
+              >
+                <span>{resource.downloadStatusText || (isDownloading ? '下载中' : '下载失败')}</span>
+                <span>{resource.downloadProgress ?? 0}%</span>
+              </div>
+              <Progress
+                percent={resource.downloadProgress ?? 0}
+                size="small"
+                status={resource.downloadStatus === 'error' ? 'exception' : 'active'}
+                showInfo={false}
+                strokeColor={resource.downloadStatus === 'error' ? 'var(--color-danger)' : 'var(--color-primary)'}
+                trailColor="rgba(255, 255, 255, 0.2)"
+                style={{ margin: 0 }}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="media-card__actions">
@@ -278,9 +328,14 @@ export default function MediaCard({
               <EyeOutlined />
             </button>
           </Tooltip>
-          <Tooltip title="下载" mouseEnterDelay={0.5}>
-            <button className="media-card__action-btn" onClick={() => onDownload?.(resource.id)} aria-label="下载">
-              <DownloadOutlined />
+          <Tooltip title={downloadTooltipTitle} mouseEnterDelay={0.5}>
+            <button
+              className="media-card__action-btn"
+              onClick={() => onDownload?.(resource.id)}
+              aria-label={isDownloading ? '下载中' : '下载'}
+              disabled={isDownloading}
+            >
+              {isDownloading ? <LoadingOutlined spin /> : <DownloadOutlined />}
             </button>
           </Tooltip>
           <Tooltip title="复制链接" mouseEnterDelay={0.5}>

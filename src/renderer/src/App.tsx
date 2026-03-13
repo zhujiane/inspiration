@@ -30,6 +30,8 @@ interface DownloadTask extends BatchActionItem {
   resource: MediaResource
 }
 
+type ResourceDownloadState = Pick<MediaResource, 'downloadProgress' | 'downloadStatus' | 'downloadStatusText'>
+
 function parseDurationText(value?: string): number {
   if (!value) return 0
   const parts = value
@@ -101,6 +103,28 @@ function createDownloadTask(resource: MediaResource, index: number): DownloadTas
   }
 }
 
+function buildRedownloadPrompt(resource: MediaResource): { title: string; content: string } | null {
+  if (resource.downloaded && resource.merged) {
+    return {
+      title: '资源已下载且已参与合并',
+      content: '继续下载可能生成重复文件。确认仍要重新下载吗？'
+    }
+  }
+  if (resource.downloaded) {
+    return {
+      title: '资源已下载',
+      content: '继续下载可能生成重复文件。确认仍要重新下载吗？'
+    }
+  }
+  if (resource.merged) {
+    return {
+      title: '资源已参与合并',
+      content: '该资源已用于合并并已入库。确认仍要单独下载吗？'
+    }
+  }
+  return null
+}
+
 /* ============================================================
    Ant Design Compact Theme Tokens
    ============================================================ */
@@ -157,6 +181,12 @@ function App(): React.JSX.Element {
   const [previewVisible, setPreviewVisible] = useState(false)
   const [previewResource, setPreviewResource] = useState<MediaResource | null>(null)
 
+  const updateResourcesDownloadState = useCallback((ids: string[], patch: ResourceDownloadState) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    setResources((prev) => prev.map((item) => (idSet.has(item.id) ? { ...item, ...patch } : item)))
+  }, [])
+
   // --- MainContent Ref ---
   const mainContentRef = useRef<MainContentRef>(null)
   const [canGoBack, setCanGoBack] = useState(false)
@@ -192,7 +222,10 @@ function App(): React.JSX.Element {
           id: existing.id,
           selected: existing.selected,
           merged: existing.merged,
-          downloaded: existing.downloaded
+          downloaded: existing.downloaded,
+          downloadProgress: existing.downloadProgress,
+          downloadStatus: existing.downloadStatus,
+          downloadStatusText: existing.downloadStatusText
         }
         const next = [...prev]
         next[existingIndex] = merged
@@ -248,6 +281,26 @@ function App(): React.JSX.Element {
       }
 
       if (type === 'download' && id) {
+        setResources((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  downloadProgress: safeProgress > (item.downloadProgress ?? 0) ? safeProgress : (item.downloadProgress ?? 0),
+                  downloadStatus: phase === 'library' && safeProgress >= 100 ? 'success' : 'processing',
+                  downloadStatusText:
+                    message ||
+                    (phase === 'download'
+                      ? '下载中'
+                      : phase === 'analyze'
+                        ? '分析中'
+                        : phase === 'library'
+                          ? '写入素材库'
+                          : item.downloadStatusText)
+                }
+              : item
+          )
+        )
         setDownloadTasks((prev) =>
           prev.map((task) =>
             task.resource.id === id
@@ -698,19 +751,95 @@ function App(): React.JSX.Element {
     async (id: string) => {
       const res = resources.find((r) => r.id === id)
       if (!res) return
+
+      const existingTask = downloadTasks.find((task) => task.resource.id === id && task.status !== 'error')
+      if (res.downloadStatus === 'processing' || existingTask?.status === 'processing') {
+        message.warning('该资源正在下载，请勿重复操作')
+        return
+      }
+
+      if (existingTask?.status === 'pending') {
+        setDownloadModalVisible(true)
+        message.warning('该资源已在下载列表中')
+        return
+      }
+
+      const prompt = buildRedownloadPrompt(res)
+      if (prompt) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: prompt.title,
+            content: prompt.content,
+            okText: '继续下载',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false)
+          })
+        })
+        if (!confirmed) return
+      }
+
+      const nextTask = createDownloadTask(res, Date.now())
+      setDownloadTasks((prev) => {
+        const filtered = prev.filter((task) => task.resource.id !== id)
+        return [...filtered, nextTask]
+      })
+      updateResourcesDownloadState([id], {
+        downloadProgress: 0,
+        downloadStatus: 'processing',
+        downloadStatusText: '准备下载'
+      })
+
       try {
         await downloadResource(res)
         setResources((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, downloaded: true, selected: false } : item))
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  downloaded: true,
+                  selected: false,
+                  downloadProgress: 100,
+                  downloadStatus: 'success',
+                  downloadStatusText: '下载完成'
+                }
+              : item
+          )
+        )
+        setDownloadTasks((prev) =>
+          prev.map((item) =>
+            item.resource.id === id
+              ? { ...item, status: 'success', statusText: '下载完成', progress: 100, errorMessage: undefined }
+              : item
+          )
         )
         window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
         message.success('下载完成，已添加到素材库')
       } catch (error) {
         console.error('Sniffer download failed:', error)
-        message.error((error as Error)?.message || '下载失败，未添加到素材库')
+        const errorMessage = (error as Error)?.message || '下载失败，未添加到素材库'
+        updateResourcesDownloadState([id], {
+          downloadProgress: 0,
+          downloadStatus: 'error',
+          downloadStatusText: '下载失败'
+        })
+        setDownloadTasks((prev) =>
+          prev.map((item) =>
+            item.resource.id === id
+              ? {
+                  ...item,
+                  status: 'error',
+                  statusText: '下载失败',
+                  progress: 0,
+                  errorMessage
+                }
+              : item
+          )
+        )
+        message.error(errorMessage)
       }
     },
-    [downloadResource, resources]
+    [downloadResource, downloadTasks, resources, updateResourcesDownloadState]
   )
 
   const handleBatchDownloadOpen = useCallback(() => {
@@ -756,6 +885,14 @@ function App(): React.JSX.Element {
           : item
       )
     )
+    updateResourcesDownloadState(Array.from(taskIdsToRun).map((taskId) => {
+      const task = tasksToRun.find((item) => item.id === taskId)
+      return task?.resource.id || ''
+    }).filter(Boolean), {
+      downloadProgress: 15,
+      downloadStatus: 'processing',
+      downloadStatusText: '下载中'
+    })
 
     try {
       const result = await trpc.sniffer.downloadSelected.mutate({
@@ -803,12 +940,26 @@ function App(): React.JSX.Element {
               ? {
                   ...item,
                   downloaded: true,
-                  selected: false
+                  selected: false,
+                  downloadProgress: 100,
+                  downloadStatus: 'success',
+                  downloadStatusText: '下载完成'
                 }
               : item
           )
         )
         message.success(`下载完成，已自动添加 ${downloadedCount} 个素材到素材库`)
+      }
+
+      const failedIds = tasksToRun
+        .map((task) => task.resource.id)
+        .filter((resourceId) => !downloadedIds.has(resourceId))
+      if (failedIds.length > 0) {
+        updateResourcesDownloadState(failedIds, {
+          downloadProgress: 0,
+          downloadStatus: 'error',
+          downloadStatusText: '下载失败'
+        })
       }
 
       if (tasksToRun.length !== downloadedCount) {
@@ -829,11 +980,19 @@ function App(): React.JSX.Element {
             : item
         )
       )
+      updateResourcesDownloadState(
+        tasksToRun.map((item) => item.resource.id),
+        {
+          downloadProgress: 0,
+          downloadStatus: 'error',
+          downloadStatusText: '下载失败'
+        }
+      )
       message.error((error as Error)?.message || '下载失败，未添加到素材库')
     } finally {
       setDownloadSubmitting(false)
     }
-  }, [downloadTasks])
+  }, [downloadTasks, updateResourcesDownloadState])
 
   const handleMergeOpen = useCallback(() => {
     const selectedResources = resources.filter(

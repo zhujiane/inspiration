@@ -90,7 +90,12 @@ const convertMediaInfoToProbeMetadata = (result: MediaInfoResult): ProbeMetadata
           codec_type: 'video',
           width: track.Width,
           height: track.Height,
-          codec_name: normalizeCodecName(track.Format_Commercial_IfAny, track.Format, track.CodecID, track.CodecID_Hint),
+          codec_name: normalizeCodecName(
+            track.Format_Commercial_IfAny,
+            track.Format,
+            track.CodecID,
+            track.CodecID_Hint
+          ),
           codec_tag_string: normalizeCodecName(track.CodecID),
           disposition: {
             attached_pic: false
@@ -103,7 +108,12 @@ const convertMediaInfoToProbeMetadata = (result: MediaInfoResult): ProbeMetadata
       return [
         {
           codec_type: 'audio',
-          codec_name: normalizeCodecName(track.Format_Commercial_IfAny, track.Format, track.CodecID, track.CodecID_Hint),
+          codec_name: normalizeCodecName(
+            track.Format_Commercial_IfAny,
+            track.Format,
+            track.CodecID,
+            track.CodecID_Hint
+          ),
           codec_tag_string: normalizeCodecName(track.CodecID)
         }
       ]
