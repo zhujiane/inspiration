@@ -8,7 +8,7 @@ import ffmpegStatic from 'ffmpeg-static'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
-import { mergeMediaTracks } from '../ffmpeg'
+import { captureVideoFrameBase64, inspectLocalMedia, mergeMediaTracks } from '../ffmpeg'
 import { headRequest, requestWithRedirect } from './http'
 import { DEFAULT_USER_AGENT } from './constants'
 import {
@@ -260,22 +260,28 @@ async function buildLibraryMeta(
 ): Promise<{ meta: any; cover?: string }> {
   const stat = await fs.stat(localPath).catch(() => null)
   const baseSize = stat?.size ?? 0
-  const duration = parseDurationText(resource.duration)
-  const { width, height } = parseResolutionText(resource.resolution)
+  const analyzedMeta =
+    resource.type === 'video' || resource.type === 'audio' ? await inspectLocalMedia(localPath) : null
+  const fallbackDuration = parseDurationText(resource.duration)
+  const fallbackResolution = parseResolutionText(resource.resolution)
 
-  // 默认优先复用嗅探阶段/HEAD 阶段已有数据，避免对本地文件做额外分析
-  const baseMeta: any = {
-    type: resource.type,
+  const cover =
+    resource.type === 'image'
+      ? buildLocalPreviewProxyUrl(localPath)
+      : resource.type === 'video'
+        ? (await captureVideoFrameBase64(localPath).catch(() => undefined)) || resource.thumbnailUrl || undefined
+        : resource.thumbnailUrl || undefined
+
+  const meta: any = {
+    type: analyzedMeta?.type || resource.type,
     size: baseSize,
-    width,
-    height,
-    duration
+    width: analyzedMeta?.width ?? fallbackResolution.width,
+    height: analyzedMeta?.height ?? fallbackResolution.height,
+    duration: analyzedMeta?.duration ?? fallbackDuration,
+    cover
   }
 
-  const cover = resource.type === 'image' ? buildLocalPreviewProxyUrl(localPath) : resource.thumbnailUrl || undefined
-
-  baseMeta.cover = cover
-  return { meta: baseMeta, cover }
+  return { meta, cover }
 }
 
 async function withRetry<T>(fn: () => Promise<T>, options?: { retries?: number; delayMs?: number }): Promise<T> {
@@ -674,19 +680,18 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
       emitProgress({ phase: 'analyze', progress: 90, message: '整理媒体信息' })
 
       const outputStat = await fs.stat(outputPath).catch(() => null)
-      const baseSize = outputStat?.size ?? 0
-      const duration = parseDurationText(task.video.duration)
-      const { width, height } = parseResolutionText(task.video.resolution)
-      const baseMeta: any = {
+      const analyzedMeta = await inspectLocalMedia(outputPath).catch(() => null)
+      const fallbackDuration = parseDurationText(task.video.duration)
+      const fallbackResolution = parseResolutionText(task.video.resolution)
+      const cover = (await captureVideoFrameBase64(outputPath).catch(() => undefined)) || task.video.thumbnailUrl
+      const meta: any = {
         type: 'video',
-        size: baseSize,
-        width,
-        height,
-        duration
+        size: outputStat?.size ?? 0,
+        width: analyzedMeta?.width ?? fallbackResolution.width,
+        height: analyzedMeta?.height ?? fallbackResolution.height,
+        duration: analyzedMeta?.duration ?? fallbackDuration,
+        cover
       }
-
-      const cover = task.video.thumbnailUrl
-      const meta: any = { ...baseMeta, cover }
 
       emitProgress({ phase: 'library', progress: 95, message: '写入素材库' })
       const [libraryItem] = await db

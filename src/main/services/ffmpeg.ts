@@ -5,6 +5,7 @@ import log from './logger'
 type SpawnResult = {
   stdout: Buffer
   stderr: string
+  code: number | null
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
@@ -29,6 +30,7 @@ const runProcess = (
   options?: {
     timeoutMs?: number
     stdoutLimitBytes?: number
+    allowNonZeroExit?: boolean
   }
 ): Promise<SpawnResult> =>
   new Promise((resolve, reject) => {
@@ -78,14 +80,86 @@ const runProcess = (
       finish(() => {
         const stdout = Buffer.concat(stdoutChunks)
         const stderr = Buffer.concat(stderrChunks).toString('utf8')
-        if (code === 0) {
-          resolve({ stdout, stderr })
+        if (code === 0 || options?.allowNonZeroExit) {
+          resolve({ stdout, stderr, code })
           return
         }
         reject(new Error(stderr || `${binaryPath} exited with code ${code}`))
       })
     })
   })
+
+export type LocalMediaMeta = {
+  type: 'image' | 'video' | 'audio' | 'other'
+  size?: number
+  width?: number
+  height?: number
+  duration?: number
+  cover?: string
+}
+
+const parseDurationToSeconds = (raw: string): number | undefined => {
+  const match = raw.match(/(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/)
+  if (!match) return undefined
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  const seconds = Number(match[3])
+  if (![hours, minutes, seconds].every((value) => Number.isFinite(value) && value >= 0)) {
+    return undefined
+  }
+  return hours * 3600 + minutes * 60 + seconds
+}
+
+const parseResolution = (raw: string): { width?: number; height?: number } => {
+  const match = raw.match(/(\d+)\s*x\s*(\d+)(?:[\s,\\[]|$)/i)
+  if (!match) return {}
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return {}
+  }
+  return { width, height }
+}
+
+const parseFfmpegInspectOutput = (stderr: string): LocalMediaMeta => {
+  const durationMatch = stderr.match(/Duration:\s*([0-9:.]+)/i)
+  const streamLines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^Stream #/i.test(line))
+
+  const videoLine = streamLines.find((line) => /Video:/i.test(line))
+  const audioLine = streamLines.find((line) => /Audio:/i.test(line))
+
+  if (videoLine) {
+    const { width, height } = parseResolution(videoLine)
+    return {
+      type: 'video',
+      width,
+      height,
+      duration: parseDurationToSeconds(durationMatch?.[1] || '')
+    }
+  }
+
+  if (audioLine) {
+    return {
+      type: 'audio',
+      duration: parseDurationToSeconds(durationMatch?.[1] || '')
+    }
+  }
+
+  return { type: 'other' }
+}
+
+export const inspectLocalMedia = async (source: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<LocalMediaMeta> => {
+  assertLocalPath(source)
+  const args = ['-hide_banner', '-i', source]
+  const { stderr } = await runProcess(getFfmpegPath(), args, {
+    timeoutMs,
+    allowNonZeroExit: true
+  })
+  return parseFfmpegInspectOutput(stderr)
+}
 
 export const captureVideoFrame = async (
   source: string,
@@ -115,6 +189,19 @@ export const captureVideoFrame = async (
     stdoutLimitBytes: 8 * 1024 * 1024
   })
   return stdout
+}
+
+export const captureVideoFrameBase64 = async (
+  source: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<string | undefined> => {
+  const buffer = await captureVideoFrame(source, undefined, timeoutMs).catch((error) => {
+    log.debug(`[FFmpeg] captureVideoFrameBase64 failed: ${String(error)}`)
+    return null
+  })
+
+  if (!buffer || buffer.length === 0) return undefined
+  return `data:image/jpeg;base64,${buffer.toString('base64')}`
 }
 
 export const mergeMediaTracks = async (
