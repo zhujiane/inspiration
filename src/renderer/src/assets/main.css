@@ -256,24 +256,6 @@
   color: var(--color-text);
 }
 
-.title-bar__tab-add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--border-radius-sm);
-  color: var(--color-text-tertiary);
-  font-size: 13px;
-  flex-shrink: 0;
-  transition: all var(--transition-fast);
-}
-
-.title-bar__tab-add:hover {
-  background: var(--color-bg-layout);
-  color: var(--color-text);
-}
-
 .title-bar__tab-actions {
   flex-shrink: 0;
 }

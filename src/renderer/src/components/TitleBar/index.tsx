@@ -10,7 +10,8 @@ import {
   CloseOutlined,
   MinusOutlined,
   ExpandOutlined,
-  DownOutlined
+  VideoCameraOutlined,
+  SettingOutlined
 } from '@ant-design/icons'
 
 export interface Tab {
@@ -36,7 +37,6 @@ interface TitleBarProps {
   onTabSelect?: (id: string) => void
   onTabClose?: (id: string) => void
   onCloseAll?: () => void
-  onCloseRight?: () => void
   onCloseOthers?: () => void
   onMenuClick?: (key: string) => void
   onMinimize?: () => void
@@ -60,7 +60,6 @@ export default function TitleBar({
   onTabSelect,
   onTabClose,
   onCloseAll,
-  onCloseRight,
   onCloseOthers,
   onMinimize,
   onMaximize,
@@ -76,13 +75,11 @@ export default function TitleBar({
 
   const tabDropdownItems: MenuProps['items'] = [
     { key: 'closeAll', label: '关闭所有' },
-    { key: 'closeRight', label: '关闭右侧' },
     { key: 'closeOthers', label: '关闭其他' }
   ]
 
   const handleTabDropdown: MenuProps['onClick'] = ({ key }) => {
     if (key === 'closeAll') onCloseAll?.()
-    else if (key === 'closeRight') onCloseRight?.()
     else if (key === 'closeOthers') onCloseOthers?.()
   }
 
@@ -137,6 +134,22 @@ export default function TitleBar({
   const scrollTabsRight = (): void => {
     const el = tabsScrollRef.current
     if (el) el.scrollBy({ left: 120, behavior: 'smooth' })
+  }
+
+  const renderTabIcon = (tab: Tab): React.JSX.Element | null => {
+    if (tab.favicon) {
+      return <img src={tab.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2 }} />
+    }
+
+    if (tab.type === 'resource') {
+      return <VideoCameraOutlined style={{ fontSize: 12 }} />
+    }
+
+    if (tab.type === 'system') {
+      return <SettingOutlined style={{ fontSize: 12 }} />
+    }
+
+    return null
   }
 
   return (
@@ -206,56 +219,51 @@ export default function TitleBar({
 
       <div className="title-bar__divider" />
 
-      {/* 1.4 Tabs — hidden scrollbar with arrow buttons */}
-      <div className="title-bar__tabs">
-        {showLeftArrow && (
-          <button
-            className="title-bar__tabs-arrow title-bar__tabs-arrow--left"
-            onClick={scrollTabsLeft}
-            aria-label="向左滚动标签"
-          >
-            <LeftOutlined />
-          </button>
-        )}
-        <div className="title-bar__tabs-scroll" ref={tabsScrollRef} onWheel={handleTabsWheel}>
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={`title-bar__tab ${tab.id === activeTabId ? 'title-bar__tab--active' : ''}`}
-              onClick={() => onTabSelect?.(tab.id)}
-              title={tab.title}
+      {/* 1.4 Tabs — hidden scrollbar with right-click menu */}
+      <Dropdown menu={{ items: tabDropdownItems, onClick: handleTabDropdown }} trigger={['contextMenu']}>
+        <div className="title-bar__tabs">
+          {showLeftArrow && (
+            <button
+              className="title-bar__tabs-arrow title-bar__tabs-arrow--left"
+              onClick={scrollTabsLeft}
+              aria-label="向左滚动标签"
             >
-              {tab.favicon && <img src={tab.favicon} alt="" style={{ width: 12, height: 12, borderRadius: 2 }} />}
-              <span className="title-bar__tab-title">{tab.title}</span>
-              <button
-                className="title-bar__tab-close"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTabClose?.(tab.id)
-                }}
-                aria-label={`关闭 ${tab.title}`}
+              <LeftOutlined />
+            </button>
+          )}
+          <div className="title-bar__tabs-scroll" ref={tabsScrollRef} onWheel={handleTabsWheel}>
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={`title-bar__tab ${tab.id === activeTabId ? 'title-bar__tab--active' : ''}`}
+                onClick={() => onTabSelect?.(tab.id)}
               >
-                <CloseOutlined />
-              </button>
-            </div>
-          ))}
+                {renderTabIcon(tab)}
+                <span className="title-bar__tab-title">{tab.title}</span>
+                <button
+                  className="title-bar__tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTabClose?.(tab.id)
+                  }}
+                  aria-label={`关闭 ${tab.title}`}
+                >
+                  <CloseOutlined />
+                </button>
+              </div>
+            ))}
+          </div>
+          {showRightArrow && (
+            <button
+              className="title-bar__tabs-arrow title-bar__tabs-arrow--right"
+              onClick={scrollTabsRight}
+              aria-label="向右滚动标签"
+            >
+              <RightOutlined />
+            </button>
+          )}
         </div>
-        {showRightArrow && (
-          <button
-            className="title-bar__tabs-arrow title-bar__tabs-arrow--right"
-            onClick={scrollTabsRight}
-            aria-label="向右滚动标签"
-          >
-            <RightOutlined />
-          </button>
-        )}
-
-        <Dropdown menu={{ items: tabDropdownItems, onClick: handleTabDropdown }} trigger={['click']}>
-          <button className="title-bar__tab-add" aria-label="标签操作">
-            <DownOutlined style={{ fontSize: 10 }} />
-          </button>
-        </Dropdown>
-      </div>
+      </Dropdown>
 
       <div className="title-bar__divider" />
 

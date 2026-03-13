@@ -8,9 +8,7 @@ import ffmpegStatic from 'ffmpeg-static'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
-import log from '../logger'
 import { mergeMediaTracks } from '../ffmpeg'
-import { analyzeMedia } from '../ffmpeg'
 import { headRequest, requestWithRedirect } from './http'
 import { DEFAULT_USER_AGENT } from './constants'
 import {
@@ -275,25 +273,6 @@ async function buildLibraryMeta(
   }
 
   const cover = resource.type === 'image' ? buildLocalPreviewProxyUrl(localPath) : resource.thumbnailUrl || undefined
-
-  // 缺关键字段时，只对本地文件做补充分析。
-  const shouldFallbackAnalyze =
-    resource.type !== 'image' && (!cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height))
-
-  if (shouldFallbackAnalyze) {
-    try {
-      const analyzed = await analyzeMedia({ path: localPath })
-      const merged = {
-        ...analyzed,
-        ...baseMeta,
-        size: baseSize || analyzed.size,
-        cover: cover || analyzed.cover
-      }
-      return { meta: merged, cover: cover || analyzed.cover }
-    } catch (error) {
-      log.debug(`[Sniffer] Local analyze skipped/failed (${localPath}): ${String(error)}`)
-    }
-  }
 
   baseMeta.cover = cover
   return { meta: baseMeta, cover }
@@ -706,23 +685,8 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
         duration
       }
 
-      let cover = task.video.thumbnailUrl
-      let meta: any = { ...baseMeta, cover }
-      const shouldFallbackAnalyze = !cover || (!baseMeta.duration && !baseMeta.width && !baseMeta.height)
-      if (shouldFallbackAnalyze) {
-        try {
-          const analyzed = await analyzeMedia({ path: outputPath })
-          cover = cover || analyzed.cover
-          meta = {
-            ...analyzed,
-            ...baseMeta,
-            size: baseSize || analyzed.size,
-            cover
-          }
-        } catch (error) {
-          log.debug(`[Sniffer] Local analyze skipped/failed (${outputPath}): ${String(error)}`)
-        }
-      }
+      const cover = task.video.thumbnailUrl
+      const meta: any = { ...baseMeta, cover }
 
       emitProgress({ phase: 'library', progress: 95, message: '写入素材库' })
       const [libraryItem] = await db

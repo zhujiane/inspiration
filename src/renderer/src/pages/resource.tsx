@@ -56,6 +56,124 @@ const formatDuration = (seconds: number) => {
     .join(':')
 }
 
+type LocalMediaMeta = {
+  type: 'image' | 'video' | 'audio' | 'other'
+  size?: number
+  width?: number
+  height?: number
+  duration?: number
+  cover?: string
+}
+
+const createFileUrl = (filePath: string) => {
+  const normalized = filePath.replace(/\\/g, '/')
+  return normalized.startsWith('file://') ? normalized : `file:///${normalized}`
+}
+
+const readLocalFileSize = async (fileUrl: string): Promise<number | undefined> => {
+  try {
+    const response = await fetch(fileUrl)
+    const blob = await response.blob()
+    return blob.size
+  } catch {
+    return undefined
+  }
+}
+
+const loadImageMeta = async (fileUrl: string): Promise<Pick<LocalMediaMeta, 'width' | 'height' | 'cover'>> =>
+  await new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || undefined,
+        height: image.naturalHeight || undefined,
+        cover: fileUrl
+      })
+    }
+    image.onerror = () => reject(new Error('图片加载失败'))
+    image.src = fileUrl
+  })
+
+const captureVideoCover = async (video: HTMLVideoElement): Promise<string | undefined> => {
+  if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return undefined
+  }
+
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const context = canvas.getContext('2d')
+    if (!context) return undefined
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.82)
+  } catch {
+    return undefined
+  }
+}
+
+const loadMediaElementMeta = async (
+  fileUrl: string,
+  tagName: 'video' | 'audio'
+): Promise<Pick<LocalMediaMeta, 'width' | 'height' | 'duration' | 'cover' | 'type'>> =>
+  await new Promise((resolve, reject) => {
+    const media = document.createElement(tagName)
+    media.preload = 'metadata'
+    media.crossOrigin = 'anonymous'
+
+    const cleanup = () => {
+      media.pause()
+      media.removeAttribute('src')
+      media.load()
+    }
+
+    media.onloadedmetadata = async () => {
+      const hasVideo =
+        tagName === 'video' && media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0
+      const duration = Number.isFinite(media.duration) && media.duration > 0 ? media.duration : undefined
+      const cover = hasVideo ? await captureVideoCover(media as HTMLVideoElement) : undefined
+
+      resolve({
+        type: hasVideo ? 'video' : 'audio',
+        width: hasVideo ? (media as HTMLVideoElement).videoWidth : undefined,
+        height: hasVideo ? (media as HTMLVideoElement).videoHeight : undefined,
+        duration,
+        cover
+      })
+      cleanup()
+    }
+
+    media.onerror = () => {
+      cleanup()
+      reject(new Error(`${tagName} metadata load failed`))
+    }
+
+    media.src = fileUrl
+  })
+
+const getLocalMediaMeta = async (filePath: string): Promise<LocalMediaMeta> => {
+  const fileUrl = createFileUrl(filePath)
+  const extension = filePath.split('.').pop()?.toLowerCase() || ''
+  const size = await readLocalFileSize(fileUrl)
+
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) {
+    const imageMeta = await loadImageMeta(fileUrl)
+    return { type: 'image', size, ...imageMeta }
+  }
+
+  if (['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg'].includes(extension)) {
+    const audioMeta = await loadMediaElementMeta(fileUrl, 'audio')
+    return { size, ...audioMeta }
+  }
+
+  try {
+    const videoMeta = await loadMediaElementMeta(fileUrl, 'video')
+    return { size, ...videoMeta }
+  } catch {
+    return { type: 'other', size }
+  }
+}
+
 /* ============================================================
    Resource Page Component
    ============================================================ */
@@ -128,8 +246,7 @@ export default function ResourcePage() {
         setLoading(true)
         for (const filePath of paths) {
           try {
-            // 分析文件
-            const meta = (await trpc.ffmpeg.analyze.query({ path: filePath })) as any
+            const meta = await getLocalMediaMeta(filePath)
             const fileName = filePath.split(/[\\/]/).pop() || '未知文件'
             const extension = fileName.split('.').pop()?.toLowerCase() || ''
 
@@ -137,8 +254,11 @@ export default function ResourcePage() {
             if (['mp4', 'mkv', 'avi', 'mov'].includes(extension)) type = '视频'
             else if (['jpg', 'jpeg', 'png', 'gif'].includes(extension)) type = '图片'
             else if (['mp3', 'wav', 'flac'].includes(extension)) type = '音频'
+            else if (meta.type === 'video') type = '视频'
+            else if (meta.type === 'image') type = '图片'
+            else if (meta.type === 'audio') type = '音频'
 
-            let resource = {
+            const resource = {
               name: fileName,
               type,
               localPath: filePath,

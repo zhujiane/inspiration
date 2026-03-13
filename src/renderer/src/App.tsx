@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, startTransition } from 'react'
 import { ConfigProvider, App as AntdApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import TitleBar from './components/TitleBar'
@@ -286,7 +286,8 @@ function App(): React.JSX.Element {
             item.id === id
               ? {
                   ...item,
-                  downloadProgress: safeProgress > (item.downloadProgress ?? 0) ? safeProgress : (item.downloadProgress ?? 0),
+                  downloadProgress:
+                    safeProgress > (item.downloadProgress ?? 0) ? safeProgress : (item.downloadProgress ?? 0),
                   downloadStatus: phase === 'library' && safeProgress >= 100 ? 'success' : 'processing',
                   downloadStatusText:
                     message ||
@@ -493,6 +494,31 @@ function App(): React.JSX.Element {
     },
     [activeTabId]
   )
+
+  const handleCloseOtherTabs = useCallback(() => {
+    const activeTab = tabs.find((tab) => tab.id === activeTabId)
+    if (!activeTab) {
+      setActiveTabId('')
+      setUrl('')
+      setTabs([])
+      return
+    }
+
+    if (tabs.length <= 1) {
+      if (url !== (activeTab.url || '')) {
+        setUrl(activeTab.url || '')
+      }
+      return
+    }
+
+    if (url !== (activeTab.url || '')) {
+      setUrl(activeTab.url || '')
+    }
+
+    startTransition(() => {
+      setTabs([activeTab])
+    })
+  }, [activeTabId, tabs, url])
 
   const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
@@ -885,14 +911,19 @@ function App(): React.JSX.Element {
           : item
       )
     )
-    updateResourcesDownloadState(Array.from(taskIdsToRun).map((taskId) => {
-      const task = tasksToRun.find((item) => item.id === taskId)
-      return task?.resource.id || ''
-    }).filter(Boolean), {
-      downloadProgress: 15,
-      downloadStatus: 'processing',
-      downloadStatusText: '下载中'
-    })
+    updateResourcesDownloadState(
+      Array.from(taskIdsToRun)
+        .map((taskId) => {
+          const task = tasksToRun.find((item) => item.id === taskId)
+          return task?.resource.id || ''
+        })
+        .filter(Boolean),
+      {
+        downloadProgress: 15,
+        downloadStatus: 'processing',
+        downloadStatusText: '下载中'
+      }
+    )
 
     try {
       const result = await trpc.sniffer.downloadSelected.mutate({
@@ -1257,12 +1288,10 @@ function App(): React.JSX.Element {
               onTabClose={handleTabClose}
               onCloseAll={() => {
                 setTabs([])
+                setActiveTabId('')
                 setUrl('')
               }}
-              onCloseRight={() => {}}
-              onCloseOthers={() => {
-                setTabs((prev) => prev.filter((t) => t.id === activeTabId))
-              }}
+              onCloseOthers={handleCloseOtherTabs}
               onMenuClick={(k) => console.log('Menu:', k)}
               onMinimize={() => trpc.system.minimize.mutate()}
               onMaximize={() => trpc.system.maximize.mutate()}

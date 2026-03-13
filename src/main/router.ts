@@ -3,7 +3,6 @@ import { resourceRouter } from '@shared/routers/resource'
 import { bookmarkRouter } from '@shared/routers/bookmark'
 import { configRouter } from '@shared/routers/config'
 import { systemRouter } from './routers/system'
-import { ffmpegRouter } from './routers/ffmpeg'
 import { snifferRouter } from './routers/sniffer'
 
 /**
@@ -26,7 +25,6 @@ export const appRouter = trpc.router({
    * 挂载 Electron 特有的子路由
    */
   system: systemRouter,
-  ffmpeg: ffmpegRouter,
   sniffer: snifferRouter
 })
 
