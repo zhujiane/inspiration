@@ -3,7 +3,7 @@ import { app, shell, BrowserWindow, dialog, nativeImage } from 'electron'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
-import { captureVideoFrameBase64, inspectLocalMedia } from '../services/ffmpeg'
+import { inspectLocalMedia } from '../services/ffmpeg'
 
 const showOpenDialogSchema = z
   .object({
@@ -49,26 +49,6 @@ const isAllowedExternalUrl = (url: string): boolean => {
 
 const LOCAL_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'])
 const LOCAL_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg'])
-
-const createFileDataUrl = (filePath: string): string => {
-  const ext = path.extname(filePath).toLowerCase()
-  const mimeType =
-    ext === '.jpg' || ext === '.jpeg'
-      ? 'image/jpeg'
-      : ext === '.png'
-        ? 'image/png'
-        : ext === '.gif'
-          ? 'image/gif'
-          : ext === '.webp'
-            ? 'image/webp'
-            : ext === '.bmp'
-              ? 'image/bmp'
-              : ext === '.svg'
-                ? 'image/svg+xml'
-                : 'application/octet-stream'
-  const content = fs.readFileSync(filePath)
-  return `data:${mimeType};base64,${content.toString('base64')}`
-}
 
 export const systemRouter = trpc.router({
   /**
@@ -139,8 +119,7 @@ export const systemRouter = trpc.router({
         type: 'image' as const,
         size: stat.size,
         width: imageSize.width || undefined,
-        height: imageSize.height || undefined,
-        cover: createFileDataUrl(input.filePath)
+        height: imageSize.height || undefined
       }
     }
 
@@ -154,11 +133,9 @@ export const systemRouter = trpc.router({
     }
 
     const meta = await inspectLocalMedia(input.filePath)
-    const cover = meta.type === 'video' ? await captureVideoFrameBase64(input.filePath) : undefined
     return {
       ...meta,
-      size: stat.size,
-      cover
+      size: stat.size
     }
   }),
 

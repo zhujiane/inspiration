@@ -273,6 +273,7 @@ async function buildLibraryMeta(
         : resource.thumbnailUrl || undefined
 
   const meta: any = {
+    ...(analyzedMeta ?? {}),
     type: analyzedMeta?.type || resource.type,
     size: baseSize,
     width: analyzedMeta?.width ?? fallbackResolution.width,

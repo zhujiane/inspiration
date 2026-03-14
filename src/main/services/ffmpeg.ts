@@ -95,7 +95,6 @@ export type LocalMediaMeta = {
   width?: number
   height?: number
   duration?: number
-  cover?: string
 }
 
 const parseDurationToSeconds = (raw: string): number | undefined => {
@@ -121,8 +120,14 @@ const parseResolution = (raw: string): { width?: number; height?: number } => {
   return { width, height }
 }
 
+const parseVideoStreamMeta = (line: string): Pick<LocalMediaMeta, 'width' | 'height'> => {
+  const { width, height } = parseResolution(line)
+  return { width, height }
+}
+
 const parseFfmpegInspectOutput = (stderr: string): LocalMediaMeta => {
   const durationMatch = stderr.match(/Duration:\s*([0-9:.]+)/i)
+  const duration = parseDurationToSeconds(durationMatch?.[1] || '')
   const streamLines = stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -132,23 +137,22 @@ const parseFfmpegInspectOutput = (stderr: string): LocalMediaMeta => {
   const audioLine = streamLines.find((line) => /Audio:/i.test(line))
 
   if (videoLine) {
-    const { width, height } = parseResolution(videoLine)
+    const videoMeta = parseVideoStreamMeta(videoLine)
     return {
       type: 'video',
-      width,
-      height,
-      duration: parseDurationToSeconds(durationMatch?.[1] || '')
+      duration,
+      ...videoMeta
     }
   }
 
   if (audioLine) {
     return {
       type: 'audio',
-      duration: parseDurationToSeconds(durationMatch?.[1] || '')
+      duration
     }
   }
 
-  return { type: 'other' }
+  return { type: 'other', duration }
 }
 
 export const inspectLocalMedia = async (source: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<LocalMediaMeta> => {
