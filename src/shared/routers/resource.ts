@@ -1,7 +1,7 @@
 import { db } from '@main/db'
 import { type NewResource, resourceCreateSchema, resources, resourceUpdateSchema } from '../db/resource-schema'
 import { BizError, publicProcedure, trpc } from './trpc'
-import { and, desc, eq, like, or, sql } from 'drizzle-orm'
+import { desc, eq, like, or, sql } from 'drizzle-orm'
 import { idSchema } from '../db/base'
 import { z } from 'zod'
 

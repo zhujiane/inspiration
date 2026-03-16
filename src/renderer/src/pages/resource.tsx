@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Table,
   Button,
@@ -14,6 +14,7 @@ import {
   Card,
   Badge
 } from 'antd'
+import type { TablePaginationConfig } from 'antd/es/table'
 import {
   PlusOutlined,
   SearchOutlined,
@@ -56,6 +57,17 @@ const formatDuration = (seconds: number) => {
     .join(':')
 }
 
+const formatDateTime = (value: string | Date | null | undefined) => {
+  if (!value) return '-'
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+
+  const pad = (num: number) => String(num).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes()
+  )}`
+}
+
 type LocalMediaMeta = {
   type: 'image' | 'video' | 'audio' | 'other'
   size?: number
@@ -76,6 +88,12 @@ export default function ResourcePage() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<Resource[]>([])
   const [searchText, setSearchText] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0
+  })
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingResource, setEditingResource] = useState<Partial<Resource> | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
@@ -85,8 +103,18 @@ export default function ResourcePage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const result = await trpc.resource.list.query()
-      setData(result as any)
+      const result = await trpc.resource.list.query({
+        keyword,
+        page: pagination.current,
+        pageSize: pagination.pageSize
+      })
+      setData(result.items as unknown as Resource[])
+      setPagination((prev) => ({
+        ...prev,
+        total: result.total,
+        current: result.page,
+        pageSize: result.pageSize
+      }))
     } catch (error) {
       console.error('Failed to fetch resources:', error)
       message.error('获取素材列表失败')
@@ -97,7 +125,16 @@ export default function ResourcePage() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [keyword, pagination.current, pagination.pageSize])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextKeyword = searchText.trim()
+      setKeyword((prev) => (prev === nextKeyword ? prev : nextKeyword))
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [searchText])
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -108,19 +145,7 @@ export default function ResourcePage() {
     return () => {
       window.removeEventListener(RESOURCE_LIBRARY_REFRESH_EVENT, handleRefresh)
     }
-  }, [])
-
-  // --- Filtered Data ---
-  const filteredData = useMemo(() => {
-    if (!searchText) return data
-    const term = searchText.toLowerCase()
-    return data.filter(
-      (item) =>
-        item.name.toLowerCase().includes(term) ||
-        item.type.toLowerCase().includes(term) ||
-        (item.description && item.description.toLowerCase().includes(term))
-    )
-  }, [data, searchText])
+  }, [keyword, pagination.current, pagination.pageSize])
 
   // --- Handlers ---
   const handleAddLocal = async () => {
@@ -213,6 +238,10 @@ export default function ResourcePage() {
         try {
           await trpc.resource.delete.mutate({ id })
           message.success('删除成功')
+          setPagination((prev) => ({
+            ...prev,
+            current: prev.current > 1 && data.length === 1 ? prev.current - 1 : prev.current
+          }))
           fetchData()
         } catch (error) {
           message.error('删除失败')
@@ -234,6 +263,7 @@ export default function ResourcePage() {
           }
           message.success('批量删除成功')
           setSelectedRowKeys([])
+          setPagination((prev) => ({ ...prev, current: 1 }))
           fetchData()
         } catch (error) {
           message.error('部分素材删除失败')
@@ -270,6 +300,22 @@ export default function ResourcePage() {
     } catch (error) {
       console.error('Submit error:', error)
     }
+  }
+
+  const handleTableChange = (nextPagination: TablePaginationConfig) => {
+    setPagination((prev) => ({
+      ...prev,
+      current: nextPagination.current ?? prev.current,
+      pageSize: nextPagination.pageSize ?? prev.pageSize
+    }))
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearchText(value)
+    setPagination((prev) => ({
+      ...prev,
+      current: 1
+    }))
   }
 
   // --- Table Columns ---
@@ -319,8 +365,10 @@ export default function ResourcePage() {
       title: '素材名称',
       dataIndex: 'name',
       key: 'name',
+      ellipsis: false,
+      width: 300,
       render: (name: string, res: Resource) => (
-        <Space orientation="vertical" size={0} style={{ maxWidth: 350 }}>
+        <div style={{ maxWidth: 300, minWidth: 0 }}>
           <Tooltip title={name}>
             <div
               style={{
@@ -348,6 +396,8 @@ export default function ResourcePage() {
               </Tag>
               <span
                 style={{
+                  flex: 1,
+                  minWidth: 0,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
@@ -359,6 +409,7 @@ export default function ResourcePage() {
           </Tooltip>
           <div
             style={{
+              width: '100%',
               fontSize: 11,
               color: 'var(--color-text-description)',
               overflow: 'hidden',
@@ -370,7 +421,7 @@ export default function ResourcePage() {
           >
             {res.localPath || res.url}
           </div>
-        </Space>
+        </div>
       )
     },
     {
@@ -392,6 +443,13 @@ export default function ResourcePage() {
           </Space>
         )
       }
+    },
+    {
+      title: '添加时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 160,
+      render: (createdAt: string | Date) => formatDateTime(createdAt)
     },
     {
       title: '操作',
@@ -436,14 +494,15 @@ export default function ResourcePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <Space size="middle">
             <h2 style={{ margin: 0, fontSize: 18 }}>素材库</h2>
-            <Badge count={filteredData.length} color="blue" />
+            <Badge count={pagination.total} color="blue" />
           </Space>
           <Space>
             <Search
               placeholder="搜索素材名称、类型、描述..."
               allowClear
-              onSearch={setSearchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              value={searchText}
+              onSearch={handleSearchChange}
+              onChange={(e) => handleSearchChange(e.target.value)}
               style={{ width: 250 }}
               prefix={<SearchOutlined />}
             />
@@ -464,11 +523,18 @@ export default function ResourcePage() {
             onChange: setSelectedRowKeys
           }}
           columns={columns as any}
-          dataSource={filteredData}
+          dataSource={data}
           rowKey="id"
           loading={loading}
           size="small"
-          pagination={{ pageSize: 10, showSizeChanger: true }}
+          onChange={handleTableChange}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`
+          }}
           locale={{ emptyText: <Empty description="暂无素材，点击上方按钮添加" /> }}
         />
       </Card>
