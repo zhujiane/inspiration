@@ -686,6 +686,7 @@ export async function mergeSelectedTasks(tasks: SnifferMergeTaskInput[]): Promis
       const fallbackResolution = parseResolutionText(task.video.resolution)
       const cover = (await captureVideoFrameBase64(outputPath).catch(() => undefined)) || task.video.thumbnailUrl
       const meta: any = {
+        ...(analyzedMeta ?? {}),
         type: 'video',
         size: outputStat?.size ?? 0,
         width: analyzedMeta?.width ?? fallbackResolution.width,

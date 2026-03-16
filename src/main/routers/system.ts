@@ -134,7 +134,8 @@ export const systemRouter = trpc.router({
     }
 
     const meta = await inspectLocalMedia(input.filePath)
-    const cover = meta.type === 'video' ? await captureVideoFrameBase64(input.filePath).catch(() => undefined) : undefined
+    const cover =
+      meta.type === 'video' ? await captureVideoFrameBase64(input.filePath).catch(() => undefined) : undefined
     return {
       ...meta,
       size: stat.size,

@@ -30,6 +30,7 @@ import {
 } from '@ant-design/icons'
 import { trpc } from '../lib/trpc'
 import type { Resource } from '@shared/db/resource-schema'
+import { formatDuration, formatSize } from '@shared/utils/format'
 import PreviewModal from '../components/PreviewModal'
 
 const { Search } = Input
@@ -38,25 +39,6 @@ const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
 /* ============================================================
    Formatters
    ============================================================ */
-const formatSize = (bytes: number) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-const formatDuration = (seconds: number) => {
-  if (!seconds) return '-'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  return [h, m, s]
-    .map((v) => (v < 10 ? '0' + v : v))
-    .filter((v, i) => v !== '00' || i > 0)
-    .join(':')
-}
-
 const formatDateTime = (value: string | Date | null | undefined) => {
   if (!value) return '-'
   const date = value instanceof Date ? value : new Date(value)
@@ -74,6 +56,11 @@ type LocalMediaMeta = {
   width?: number
   height?: number
   duration?: number
+  container?: string
+  mimeType?: string
+  videoCodec?: string
+  audioCodec?: string
+  browserPlayable?: boolean
   cover?: string
 }
 
@@ -441,7 +428,7 @@ export default function ResourcePage() {
                 分辨率: {meta.width}x{meta.height}
               </div>
             )}
-            {meta.duration && res.type !== '图片' && <div>时长: {formatDuration(meta.duration)}</div>}
+            {meta.duration && res.type !== '图片' && <div>时长: {formatDuration(meta.duration) || '-'}</div>}
           </Space>
         )
       }

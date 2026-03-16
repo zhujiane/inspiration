@@ -7,6 +7,7 @@ import {
   MEDIA_EXTS,
   SKIP_PATTERNS
 } from './constants'
+export { formatDuration, formatSize } from '@shared/utils/format'
 
 export type MediaType = 'video' | 'audio' | 'image' | null
 
@@ -80,23 +81,6 @@ export function titleFromUrl(url: string): string {
   } catch {
     return url.slice(0, 60)
   }
-}
-
-export function formatDuration(secs: number): string {
-  if (!secs || secs <= 0) return ''
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = Math.floor(secs % 60)
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
-export function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return ''
-  if (bytes > 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
-  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  if (bytes > 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${bytes} B`
 }
 
 export function guessExtensionFromContentType(contentType?: string): string {

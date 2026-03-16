@@ -11,6 +11,7 @@ import {
   PictureOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
+import { formatDuration } from '@shared/utils/format'
 import { buildPreviewProxyUrl } from '../../lib/media'
 import SmartVideo, { type SmartVideoMetadata } from '../Media/SmartVideo'
 
@@ -58,18 +59,6 @@ const typeLabels = {
   image: '图片',
   video: '视频',
   audio: '音频'
-}
-
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return ''
-  const totalSeconds = Math.floor(seconds)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const secs = totalSeconds % 60
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
 export default function MediaCard({
