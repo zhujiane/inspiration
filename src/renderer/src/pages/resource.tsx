@@ -74,6 +74,7 @@ type LocalMediaMeta = {
   width?: number
   height?: number
   duration?: number
+  cover?: string
 }
 
 const getLocalMediaMeta = async (filePath: string): Promise<LocalMediaMeta> => {
@@ -200,6 +201,7 @@ export default function ResourcePage() {
               type,
               localPath: filePath,
               platform: '本地',
+              cover: meta.cover,
               metadata: JSON.stringify(meta),
               description: `从本地添加: ${filePath}`
             }

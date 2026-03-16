@@ -3,7 +3,7 @@ import { app, shell, BrowserWindow, dialog, nativeImage } from 'electron'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
-import { inspectLocalMedia } from '../services/ffmpeg'
+import { captureVideoFrameBase64, inspectLocalMedia } from '../services/ffmpeg'
 
 const showOpenDialogSchema = z
   .object({
@@ -119,7 +119,8 @@ export const systemRouter = trpc.router({
         type: 'image' as const,
         size: stat.size,
         width: imageSize.width || undefined,
-        height: imageSize.height || undefined
+        height: imageSize.height || undefined,
+        cover: image.isEmpty() ? undefined : image.toDataURL()
       }
     }
 
@@ -133,9 +134,11 @@ export const systemRouter = trpc.router({
     }
 
     const meta = await inspectLocalMedia(input.filePath)
+    const cover = meta.type === 'video' ? await captureVideoFrameBase64(input.filePath).catch(() => undefined) : undefined
     return {
       ...meta,
-      size: stat.size
+      size: stat.size,
+      cover
     }
   }),
 
