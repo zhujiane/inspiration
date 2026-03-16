@@ -1,16 +1,46 @@
 import { db } from '@main/db'
-import { resourceCreateSchema, resources, resourceUpdateSchema } from '../db/resource-schema'
+import { type NewResource, resourceCreateSchema, resources, resourceUpdateSchema } from '../db/resource-schema'
 import { BizError, publicProcedure, trpc } from './trpc'
-import { eq, desc } from 'drizzle-orm'
+import { and, desc, eq, like, or, sql } from 'drizzle-orm'
 import { idSchema } from '../db/base'
+import { z } from 'zod'
+
+const resourceListSchema = z.object({
+  keyword: z.string().trim().optional().default(''),
+  page: z.number().int().positive().optional().default(1),
+  pageSize: z.number().int().positive().max(100).optional().default(10)
+})
 
 // Resource CRUD 路由
 export const resourceRouter = trpc.router({
   // 获取所有资源
-  list: publicProcedure.query(async () => {
-    const result = await db.select().from(resources).orderBy(desc(resources.id))
+  list: publicProcedure.input(resourceListSchema).query(async ({ input }) => {
+    const keyword = input.keyword.trim()
+    const page = input.page
+    const pageSize = input.pageSize
+    const offset = (page - 1) * pageSize
+    const where = keyword
+      ? or(
+          like(resources.name, `%${keyword}%`),
+          like(resources.type, `%${keyword}%`),
+          like(resources.description, `%${keyword}%`)
+        )
+      : undefined
 
-    return result
+    const [items, totalResult] = await Promise.all([
+      db.select().from(resources).where(where).orderBy(desc(resources.id)).limit(pageSize).offset(offset),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(resources)
+        .where(where)
+    ])
+
+    return {
+      items,
+      total: totalResult[0]?.count ?? 0,
+      page,
+      pageSize
+    }
   }),
 
   // 根据 ID 获取单个资源
@@ -24,7 +54,8 @@ export const resourceRouter = trpc.router({
 
   // 创建资源
   create: publicProcedure.input(resourceCreateSchema).mutation(async ({ input }) => {
-    const result = await db.insert(resources).values(input).returning()
+    const data: NewResource = input
+    const result = await db.insert(resources).values(data).returning()
     return result[0]
   }),
 

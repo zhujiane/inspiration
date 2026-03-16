@@ -1,5 +1,5 @@
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
-import { createSelectSchema, createUpdateSchema } from 'drizzle-zod'
+import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod'
 import { base } from './base'
 
 export const resources = sqliteTable('resources', {
@@ -28,9 +28,15 @@ export const resourceUpdateSchema = baseUpdateSchema.required({
   id: true
 })
 
-// 创建时：不带 id，且 name / type 必填
-export const resourceCreateSchema = baseUpdateSchema.omit({ id: true }).required({
-  name: true,
-  type: true
-})
+// 创建时：使用 insert schema，保证输入类型和 Drizzle 的插入类型一致
+export const resourceCreateSchema = createInsertSchema(resources)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true
+  })
+  .required({
+    name: true,
+    type: true
+  })
 export const resourceSelectSchema = createSelectSchema(resources)
