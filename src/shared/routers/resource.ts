@@ -1,14 +1,15 @@
 import { db } from '@main/db'
 import { resourceCreateSchema, resources, resourceUpdateSchema } from '../db/resource-schema'
 import { BizError, publicProcedure, trpc } from './trpc'
-import { eq } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { idSchema } from '../db/base'
 
 // Resource CRUD 路由
 export const resourceRouter = trpc.router({
   // 获取所有资源
   list: publicProcedure.query(async () => {
-    const result = await db.select().from(resources)
+    const result = await db.select().from(resources).orderBy(desc(resources.id))
+
     return result
   }),
 
