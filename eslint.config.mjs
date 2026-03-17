@@ -52,6 +52,7 @@ export default defineConfig(
       'newline-per-chained-call': 'off',
       'no-control-regex': 'off',
       'no-empty': 'off',
+      'no-case-declarations': 'off',
       '@stylistic/newline-per-chained-call': 'off',
       '@stylistic/js/newline-per-chained-call': 'off',
       '@typescript-eslint/no-unused-var': 'off'

@@ -1,133 +1,18 @@
-import { useState, useCallback, useRef, useEffect, useMemo, startTransition } from 'react'
-import { ConfigProvider, App as AntdApp } from 'antd'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { App as AntdApp, ConfigProvider, Form, Input, Modal, Select, message } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
-import TitleBar from './components/TitleBar'
-import type { Tab } from './components/TitleBar'
+import type { Bookmark } from '../../shared/db/bookmark-schema'
 import LeftSidebar from './components/LeftSidebar'
 import type { LeftSidebarRef } from './components/LeftSidebar'
-import type { Bookmark } from '../../shared/db/bookmark-schema'
 import MainContent from './components/MainContent'
 import type { MainContentRef } from './components/MainContent'
-import SnifferPanel from './components/SnifferPanel'
-import type { SnifferStats } from './components/SnifferPanel'
-import type { AdvancedSearchFilters } from './components/SnifferPanel'
-import { DEFAULT_ADVANCED_FILTERS } from './components/SnifferPanel'
-import type { MediaResource } from './components/SnifferPanel/MediaCard'
-import type { BatchActionItem, BatchActionItemStatus } from './components/SnifferPanel/BatchActionModal'
 import StatusBar from './components/StatusBar'
-import PreviewModal from './components/PreviewModal'
-import { Modal, Form, Select, Input, message } from 'antd'
+import TitleBar from './components/TitleBar'
+import type { Tab } from './features/browser/types'
+import { formatUrlInput, getTabPartition, isWebviewTab } from './features/browser/utils'
+import SnifferWorkspace from './features/sniffer/SnifferWorkspace'
 import { trpc } from './lib/trpc'
 
-const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
-
-interface MergeTask extends BatchActionItem {
-  video: MediaResource
-  audio: MediaResource
-}
-
-interface DownloadTask extends BatchActionItem {
-  resource: MediaResource
-}
-
-type ResourceDownloadState = Pick<MediaResource, 'downloadProgress' | 'downloadStatus' | 'downloadStatusText'>
-
-function parseDurationText(value?: string): number {
-  if (!value) return 0
-  const parts = value
-    .split(':')
-    .map((part) => Number(part.trim()))
-    .filter((part) => !Number.isNaN(part))
-  if (parts.length === 0) return 0
-  return parts.reduce((total, part) => total * 60 + part, 0)
-}
-
-function pairMergeResources(items: MediaResource[]): Array<{ video: MediaResource; audio: MediaResource }> {
-  const videos = items.filter((item) => item.type === 'video')
-  const audios = items.filter((item) => item.type === 'audio')
-  const usedAudioIds = new Set<string>()
-  const pairs: Array<{ video: MediaResource; audio: MediaResource }> = []
-
-  for (const video of videos) {
-    const videoDuration = parseDurationText(video.duration)
-    const videoCapturedAt = video.capturedAt ?? 0
-    const candidates = audios
-      .filter((audio) => !usedAudioIds.has(audio.id))
-      .map((audio) => ({
-        audio,
-        durationDiff: Math.abs(videoDuration - parseDurationText(audio.duration)),
-        tsDiff: Math.abs(videoCapturedAt - (audio.capturedAt ?? 0))
-      }))
-      .filter((item) => item.durationDiff <= 1)
-      .sort((a, b) => a.durationDiff - b.durationDiff || a.tsDiff - b.tsDiff)
-
-    const matched = candidates[0]
-    if (!matched) continue
-
-    usedAudioIds.add(matched.audio.id)
-    pairs.push({ video, audio: matched.audio })
-  }
-
-  return pairs
-}
-
-function createMergeTask(pair: { video: MediaResource; audio: MediaResource }, index: number): MergeTask {
-  return {
-    id: `${pair.video.id}-${pair.audio.id}-${index}`,
-    title: pair.video.title,
-    coverUrl: pair.video.thumbnailUrl || pair.video.url,
-    metrics: [
-      pair.video.duration ? `时长 ${pair.video.duration}` : '',
-      pair.video.size ? `视频 ${pair.video.size}` : '',
-      pair.audio.size ? `音频 ${pair.audio.size}` : ''
-    ].filter(Boolean),
-    progress: 0,
-    status: 'pending',
-    statusText: '待合并',
-    video: pair.video,
-    audio: pair.audio
-  }
-}
-
-function createDownloadTask(resource: MediaResource, index: number): DownloadTask {
-  return {
-    id: `${resource.id}-${index}`,
-    title: resource.title,
-    type: resource.type,
-    coverUrl: resource.thumbnailUrl || (resource.type === 'image' ? resource.url : undefined),
-    metrics: [resource.size, resource.resolution, resource.duration].filter(Boolean) as string[],
-    progress: 0,
-    status: 'pending',
-    statusText: '待下载',
-    resource
-  }
-}
-
-function buildRedownloadPrompt(resource: MediaResource): { title: string; content: string } | null {
-  if (resource.downloaded && resource.merged) {
-    return {
-      title: '资源已下载且已参与合并',
-      content: '继续下载可能生成重复文件。确认仍要重新下载吗？'
-    }
-  }
-  if (resource.downloaded) {
-    return {
-      title: '资源已下载',
-      content: '继续下载可能生成重复文件。确认仍要重新下载吗？'
-    }
-  }
-  if (resource.merged) {
-    return {
-      title: '资源已参与合并',
-      content: '该资源已用于合并并已入库。确认仍要单独下载吗？'
-    }
-  }
-  return null
-}
-
-/* ============================================================
-   Ant Design Compact Theme Tokens
-   ============================================================ */
 const antdTheme = {
   token: {
     colorPrimary: '#1677ff',
@@ -144,336 +29,125 @@ const antdTheme = {
   }
 }
 
-/* ============================================================
-   App Component
-   ============================================================ */
+function getCanonicalUrl(value: string): string {
+  if (!value || !value.includes('.')) return value
+
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`)
+    return url.origin + url.pathname
+  } catch {
+    return value
+  }
+}
+
 function App(): React.JSX.Element {
-  // --- Title Bar State ---
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState('tab-1')
   const [url, setUrl] = useState('')
-
-  // --- Sidebar State ---
-  const sidebarRef = useRef<LeftSidebarRef>(null)
-  const [activeNavId, setActiveNavId] = useState<string | number>('')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-
-  // --- Sniffer Panel State ---
-  const [resources, setResources] = useState<MediaResource[]>([])
-  const [snifferCollapsed, setSnifferCollapsed] = useState(true)
-  const [snifferSearch, setSnifferSearch] = useState('')
-  const [snifferActive, setSnifferActive] = useState(false)
-  const [snifferStats, setSnifferStats] = useState<SnifferStats>({
-    active: false,
-    sniffedCount: 0,
-    identifiedCount: 0,
-    discardedCount: 0
-  })
-  const [advancedFilters, setAdvancedFilters] = useState<AdvancedSearchFilters>(DEFAULT_ADVANCED_FILTERS)
-  const [mergeModalVisible, setMergeModalVisible] = useState(false)
-  const [mergeSubmitting, setMergeSubmitting] = useState(false)
-  const [mergeTasks, setMergeTasks] = useState<MergeTask[]>([])
-  const [downloadModalVisible, setDownloadModalVisible] = useState(false)
-  const [downloadSubmitting, setDownloadSubmitting] = useState(false)
-  const [downloadTasks, setDownloadTasks] = useState<DownloadTask[]>([])
-
-  // --- Preview State ---
-  const [previewVisible, setPreviewVisible] = useState(false)
-  const [previewResource, setPreviewResource] = useState<MediaResource | null>(null)
-
-  const updateResourcesDownloadState = useCallback((ids: string[], patch: ResourceDownloadState) => {
-    if (ids.length === 0) return
-    const idSet = new Set(ids)
-    setResources((prev) => prev.map((item) => (idSet.has(item.id) ? { ...item, ...patch } : item)))
-  }, [])
-
-  // --- MainContent Ref ---
-  const mainContentRef = useRef<MainContentRef>(null)
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
-
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [activeNavId, setActiveNavId] = useState<string | number>('')
   const [allBookmarks, setAllBookmarks] = useState<any[]>([])
   const [bookmarkGroups, setBookmarkGroups] = useState<any[]>([])
   const [isBookmarkModalVisible, setIsBookmarkModalVisible] = useState(false)
+  const [resourceCount, setResourceCount] = useState(0)
+  const [snifferActive, setSnifferActive] = useState(false)
+
+  const sidebarRef = useRef<LeftSidebarRef>(null)
+  const mainContentRef = useRef<MainContentRef>(null)
   const [bookmarkForm] = Form.useForm()
 
-  // ---------- Sniffer partition helper ----------
-  const getActivePartition = useCallback(() => {
-    const tab = tabs.find((t) => t.id === activeTabId)
-    return tab?.userDataPath ? `persist:${tab.userDataPath}` : 'persist:default'
-  }, [tabs, activeTabId])
+  const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [activeTabId, tabs])
 
-  // ---------- IPC listeners from main process ----------
-  useEffect(() => {
-    const bridge = window.snifferBridge
-    if (!bridge) return
-
-    const unsubResource = bridge.onResource((data: any) => {
-      const { resource } = data
-      if (!resource) return
-      setResources((prev) => {
-        const existingIndex = prev.findIndex((r) => r.url === resource.url)
-        if (existingIndex === -1) return [resource, ...prev]
-
-        const existing = prev[existingIndex]
-        const merged = {
-          ...existing,
-          ...resource,
-          id: existing.id,
-          selected: existing.selected,
-          merged: existing.merged,
-          downloaded: existing.downloaded,
-          downloadProgress: existing.downloadProgress,
-          downloadStatus: existing.downloadStatus,
-          downloadStatusText: existing.downloadStatusText
-        }
-        const next = [...prev]
-        next[existingIndex] = merged
-        return next
-      })
-      // Auto-expand panel when a resource is found
-      setSnifferCollapsed(false)
-    })
-
-    const unsubStats = bridge.onStats((data: any) => {
-      const partition = getActivePartition()
-      if (data.partition !== partition) return
-      setSnifferStats({
-        active: data.active,
-        sniffedCount: data.sniffedCount,
-        identifiedCount: data.identifiedCount,
-        discardedCount: data.discardedCount,
-        analyzingCount: data.analyzingCount,
-        discardedUrls: data.discardedUrls
-      })
-    })
-
-    const unsubDownloadProgress = bridge.onDownloadProgress((payload: any) => {
-      if (!payload || typeof payload !== 'object') return
-      const { type, id, progress, phase, message } = payload
-      const safeProgress = typeof progress === 'number' ? Math.max(0, Math.min(100, Math.round(progress))) : 0
-
-      if (type === 'merge' && id) {
-        setMergeTasks((prev) =>
-          prev.map((task) =>
-            task.id === id
-              ? {
-                  ...task,
-                  progress: safeProgress > task.progress ? safeProgress : task.progress,
-                  statusText:
-                    message ||
-                    (phase === 'video'
-                      ? '视频下载中'
-                      : phase === 'audio'
-                        ? '音频下载中'
-                        : phase === 'merge'
-                          ? '合并中'
-                          : phase === 'analyze'
-                            ? '分析中'
-                            : phase === 'library'
-                              ? '写入素材库'
-                              : task.statusText)
-                }
-              : task
-          )
-        )
-        return
-      }
-
-      if (type === 'download' && id) {
-        setResources((prev) =>
-          prev.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  downloadProgress:
-                    safeProgress > (item.downloadProgress ?? 0) ? safeProgress : (item.downloadProgress ?? 0),
-                  downloadStatus: phase === 'library' && safeProgress >= 100 ? 'success' : 'processing',
-                  downloadStatusText:
-                    message ||
-                    (phase === 'download'
-                      ? '下载中'
-                      : phase === 'analyze'
-                        ? '分析中'
-                        : phase === 'library'
-                          ? '写入素材库'
-                          : item.downloadStatusText)
-                }
-              : item
-          )
-        )
-        setDownloadTasks((prev) =>
-          prev.map((task) =>
-            task.resource.id === id
-              ? {
-                  ...task,
-                  progress: safeProgress > task.progress ? safeProgress : task.progress,
-                  statusText:
-                    message ||
-                    (phase === 'download'
-                      ? '下载中'
-                      : phase === 'analyze'
-                        ? '分析中'
-                        : phase === 'library'
-                          ? '写入素材库'
-                          : task.statusText)
-                }
-              : task
-          )
-        )
-      }
-    })
-
-    return () => {
-      unsubResource()
-      unsubStats()
-      unsubDownloadProgress()
-    }
-  }, [getActivePartition])
-
-  // ---------- Sniffer control handlers ----------
-  const handleSnifferStart = useCallback(async () => {
-    const partition = getActivePartition()
-    try {
-      await trpc.sniffer.start.mutate({ partition })
-      setSnifferActive(true)
-      setSnifferCollapsed(false)
-      setResources([])
-      setSnifferStats({ active: true, sniffedCount: 0, identifiedCount: 0, discardedCount: 0, analyzingCount: 0 })
-      // Trigger initial DOM scan
-      setTimeout(() => mainContentRef.current?.scanPageResources(), 300)
-    } catch (e) {
-      console.error('Sniffer start failed', e)
-    }
-  }, [getActivePartition])
-
-  const handleSnifferStop = useCallback(async () => {
-    const partition = getActivePartition()
-    try {
-      await trpc.sniffer.stop.mutate({ partition })
-      setSnifferActive(false)
-      setSnifferStats((s) => ({ ...s, active: false }))
-    } catch (e) {
-      console.error('Sniffer stop failed', e)
-    }
-  }, [getActivePartition])
-
-  // ---------- Bookmark helpers ----------
-  const getCanonicalUrl = (u: string) => {
-    if (!u || !u.includes('.')) return u
-    try {
-      const urlObj = new URL(u.startsWith('http') ? u : `https://${u}`)
-      return urlObj.origin + urlObj.pathname
-    } catch {
-      return u
-    }
-  }
+  const getActivePartition = useCallback(() => getTabPartition(activeTab), [activeTab])
 
   const fetchBookmarkGroups = useCallback(async () => {
     try {
       const all = (await trpc.bookmark.list.query()) as any[]
       setAllBookmarks(all)
-      setBookmarkGroups(all.filter((b) => b.type === 1 && b.name !== '应用'))
+      setBookmarkGroups(all.filter((item) => item.type === 1 && item.name !== '应用'))
     } catch (error) {
       console.error('Failed to fetch bookmark groups:', error)
     }
   }, [])
 
+  useEffect(() => {
+    void fetchBookmarkGroups()
+  }, [fetchBookmarkGroups])
+
   const currentBookmark = useMemo(() => {
     if (!url || !url.includes('.')) return null
     const canonicalUrl = getCanonicalUrl(url)
-    return allBookmarks.find((b) => b.type === 2 && b.url && getCanonicalUrl(b.url) === canonicalUrl)
-  }, [url, allBookmarks])
+    return allBookmarks.find((item) => item.type === 2 && item.url && getCanonicalUrl(item.url) === canonicalUrl)
+  }, [allBookmarks, url])
 
   const isFavorited = !!currentBookmark
 
-  useEffect(() => {
-    fetchBookmarkGroups()
-  }, [fetchBookmarkGroups])
-
-  useEffect(() => {
-    const activeTab = tabs.find((tab) => tab.id === activeTabId)
-    if (activeTab?.type === 'webview' && activeTab.url) {
-      setSnifferCollapsed(false)
-    }
-  }, [tabs, activeTabId])
-
-  // --- Webview Event Handler ---
   const handleWebviewEvent = useCallback(
-    (tabId: string, e: any) => {
+    (tabId: string, event: any) => {
       if (tabId !== activeTabId) return
 
-      // Update navigation state
-      if (mainContentRef.current) {
-        setCanGoBack(mainContentRef.current.getCanGoBack())
-        setCanGoForward(mainContentRef.current.getCanGoForward())
-      }
+      setCanGoBack(mainContentRef.current?.getCanGoBack() || false)
+      setCanGoForward(mainContentRef.current?.getCanGoForward() || false)
 
-      // Handle specific events
-      switch (e.type) {
+      switch (event.type) {
         case 'did-navigate':
         case 'did-navigate-in-page':
-          setUrl(e.url)
-          setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, url: e.url } : t)))
+          setUrl(event.url)
+          setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, url: event.url } : tab)))
           break
         case 'page-title-updated':
-          setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, title: e.title } : t)))
+          setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, title: event.title } : tab)))
           break
         case 'page-favicon-updated':
-          if (e.favicons && e.favicons.length > 0) {
-            const favicon = e.favicons[0]
-            setTabs((prev) =>
-              prev.map((t) => {
-                if (t.id === tabId) {
-                  if (t.favicon && t.favicon.startsWith('data:image')) {
-                    return t
-                  }
-                  return { ...t, favicon }
-                }
-                return t
-              })
-            )
+          if (!event.favicons?.length) break
 
-            // Save favicon to DB if the bookmark doesn't have one yet
-            const currentUrl = tabs.find((t) => t.id === tabId)?.url
-            if (currentUrl) {
-              const bookmark = allBookmarks.find(
-                (b) => b.type === 2 && b.url && getCanonicalUrl(b.url) === getCanonicalUrl(currentUrl)
-              )
-              if (bookmark && (!bookmark.icon || !bookmark.icon.startsWith('data:image'))) {
-                fetch(favicon)
-                  .then((res) => res.blob())
-                  .then((blob) => {
-                    const reader = new FileReader()
-                    reader.onloadend = () => {
-                      const base64 = reader.result as string
-                      if (base64 && base64.startsWith('data:image')) {
-                        trpc.bookmark.update
-                          .mutate({ id: bookmark.id, icon: base64 })
-                          .then(() => {
-                            fetchBookmarkGroups()
-                            sidebarRef.current?.refresh()
-                          })
-                          .catch((err) => console.error('Failed to save favicon to DB:', err))
-                      }
-                    }
-                    reader.readAsDataURL(blob)
+          const favicon = event.favicons[0]
+          setTabs((prev) =>
+            prev.map((tab) => {
+              if (tab.id !== tabId) return tab
+              if (tab.favicon?.startsWith('data:image')) return tab
+              return { ...tab, favicon }
+            })
+          )
+
+          if (!activeTab?.url) break
+          const bookmark = allBookmarks.find(
+            (item) => item.type === 2 && item.url && getCanonicalUrl(item.url) === getCanonicalUrl(activeTab.url || '')
+          )
+
+          if (!bookmark || (bookmark.icon && bookmark.icon.startsWith('data:image'))) break
+
+          fetch(favicon)
+            .then((res) => res.blob())
+            .then((blob) => {
+              const reader = new FileReader()
+              reader.onloadend = () => {
+                const base64 = reader.result as string
+                if (!base64?.startsWith('data:image')) return
+
+                trpc.bookmark.update
+                  .mutate({ id: bookmark.id, icon: base64 })
+                  .then(() => {
+                    void fetchBookmarkGroups()
+                    sidebarRef.current?.refresh()
                   })
-                  .catch(() => {})
+                  .catch((error) => console.error('Failed to save favicon to DB:', error))
               }
-            }
-          }
+              reader.readAsDataURL(blob)
+            })
+            .catch(() => {})
           break
       }
     },
-    [activeTabId, tabs, allBookmarks, fetchBookmarkGroups]
+    [activeTab, activeTabId, allBookmarks, fetchBookmarkGroups]
   )
 
-  // --- Title Bar Handlers ---
   const handleTabSelect = useCallback(
     (id: string) => {
       setActiveTabId(id)
-      const tab = tabs.find((t) => t.id === id)
+      const tab = tabs.find((item) => item.id === id)
       setUrl(tab?.url || '')
     },
     [tabs]
@@ -482,119 +156,113 @@ function App(): React.JSX.Element {
   const handleTabClose = useCallback(
     (id: string) => {
       setTabs((prev) => {
-        const next = prev.filter((t) => t.id !== id)
-        if (next.length === 0) {
+        const nextTabs = prev.filter((tab) => tab.id !== id)
+        if (nextTabs.length === 0) {
+          setActiveTabId('')
           setUrl('')
-        } else if (id === activeTabId && next.length > 0) {
-          setActiveTabId(next[0].id)
-          setUrl(next[0].url || '')
+          return nextTabs
         }
-        return next
+
+        if (id === activeTabId) {
+          setActiveTabId(nextTabs[0].id)
+          setUrl(nextTabs[0].url || '')
+        }
+
+        return nextTabs
       })
     },
     [activeTabId]
   )
 
   const handleCloseOtherTabs = useCallback(() => {
-    const activeTab = tabs.find((tab) => tab.id === activeTabId)
-    if (!activeTab) {
+    const currentTab = tabs.find((tab) => tab.id === activeTabId)
+    if (!currentTab) {
+      setTabs([])
       setActiveTabId('')
       setUrl('')
-      setTabs([])
       return
     }
 
     if (tabs.length <= 1) {
-      if (url !== (activeTab.url || '')) {
-        setUrl(activeTab.url || '')
-      }
+      setUrl(currentTab.url || '')
       return
     }
 
-    if (url !== (activeTab.url || '')) {
-      setUrl(activeTab.url || '')
-    }
-
+    setUrl(currentTab.url || '')
     startTransition(() => {
-      setTabs([activeTab])
+      setTabs([currentTab])
     })
-  }, [activeTabId, tabs, url])
+  }, [activeTabId, tabs])
 
   const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
 
-    // Handle special local apps
     if (item.type === 3) {
       if (item.name === '素材管理' || item.name === '素材中心') {
         setTabs((prev) => {
-          const existing = prev.find((t) => t.type === 'resource')
+          const existing = prev.find((tab) => tab.type === 'resource')
           if (existing) {
             setActiveTabId(existing.id)
             return prev
           }
-          const newTab: Tab = {
-            id: `tab-resource`,
-            title: '素材管理',
-            type: 'resource'
-          }
-          setActiveTabId(newTab.id)
-          return [...prev, newTab]
+
+          const nextTab: Tab = { id: 'tab-resource', title: '素材管理', type: 'resource' }
+          setActiveTabId(nextTab.id)
+          return [...prev, nextTab]
         })
         return
       }
 
       if (item.name === '系统配置' || item.name === '系统初始化') {
         setTabs((prev) => {
-          const existing = prev.find((t) => t.type === 'system')
+          const existing = prev.find((tab) => tab.type === 'system')
           if (existing) {
             setActiveTabId(existing.id)
             return prev
           }
-          const newTab: Tab = {
-            id: `tab-system`,
-            title: '系统配置',
-            type: 'system'
-          }
-          setActiveTabId(newTab.id)
-          return [...prev, newTab]
+
+          const nextTab: Tab = { id: 'tab-system', title: '系统配置', type: 'system' }
+          setActiveTabId(nextTab.id)
+          return [...prev, nextTab]
         })
         return
       }
     }
 
-    if (item.url) {
-      setUrl(item.url)
-      const dbFavicon = item.icon && item.icon.startsWith('data:image') ? item.icon : undefined
-      setTabs((prev) => {
-        const existing = prev.find((t) => t.url === item.url)
-        if (existing) {
-          setActiveTabId(existing.id)
-          if (dbFavicon && (!existing.favicon || !existing.favicon.startsWith('data:image'))) {
-            return prev.map((t) => (t.id === existing.id ? { ...t, favicon: dbFavicon } : t))
-          }
-          return prev
+    if (!item.url) return
+
+    const dbFavicon = item.icon?.startsWith('data:image') ? item.icon : undefined
+    setUrl(item.url)
+
+    setTabs((prev) => {
+      const existing = prev.find((tab) => tab.url === item.url)
+      if (existing) {
+        setActiveTabId(existing.id)
+        if (dbFavicon && !existing.favicon?.startsWith('data:image')) {
+          return prev.map((tab) => (tab.id === existing.id ? { ...tab, favicon: dbFavicon } : tab))
         }
-        const newTab: Tab = {
-          id: `tab-${Date.now()}`,
-          title: item.name,
-          url: item.url || '',
-          userDataPath: item.userDataPath || 'default',
-          type: 'webview',
-          favicon: dbFavicon
-        }
-        setActiveTabId(newTab.id)
-        return [...prev, newTab]
-      })
-    }
+        return prev
+      }
+
+      const nextTab: Tab = {
+        id: `tab-${Date.now()}`,
+        title: item.name,
+        url: item.url || undefined,
+        userDataPath: item.userDataPath || 'default',
+        type: 'webview',
+        favicon: dbFavicon
+      }
+      setActiveTabId(nextTab.id)
+      return [...prev, nextTab]
+    })
   }, [])
 
-  // --- Bookmark Handlers ---
   const handleToggleFavorite = useCallback(async () => {
     if (isFavorited && currentBookmark) {
       try {
         await trpc.bookmark.delete.mutate({ id: currentBookmark.id })
         message.success('已取消收藏')
-        fetchBookmarkGroups()
+        void fetchBookmarkGroups()
         sidebarRef.current?.refresh()
       } catch (error) {
         console.error('Failed to remove bookmark:', error)
@@ -603,645 +271,67 @@ function App(): React.JSX.Element {
       return
     }
 
-    const currentTab = tabs.find((t) => t.id === activeTabId)
     bookmarkForm.setFieldsValue({
-      name: currentTab?.title || '',
-      url: url,
+      name: activeTab?.title || '',
+      url,
       parentId: bookmarkGroups[0]?.id || 0,
-      userDataPath: currentTab?.userDataPath || 'default'
+      userDataPath: activeTab?.userDataPath || 'default'
     })
     setIsBookmarkModalVisible(true)
-  }, [isFavorited, currentBookmark, activeTabId, tabs, url, bookmarkGroups, bookmarkForm, fetchBookmarkGroups])
+  }, [activeTab, bookmarkForm, bookmarkGroups, currentBookmark, fetchBookmarkGroups, isFavorited, url])
 
-  const handleBookmarkSubmit = async () => {
+  const handleBookmarkSubmit = useCallback(async () => {
     try {
       const values = await bookmarkForm.validateFields()
-      await trpc.bookmark.create.mutate({
-        ...values,
-        type: 2
-      })
+      await trpc.bookmark.create.mutate({ ...values, type: 2 })
       message.success('已添加到收藏夹')
       setIsBookmarkModalVisible(false)
-      fetchBookmarkGroups()
+      void fetchBookmarkGroups()
       sidebarRef.current?.refresh()
     } catch (error) {
       console.error('Failed to create bookmark:', error)
     }
-  }
+  }, [bookmarkForm, fetchBookmarkGroups])
 
-  // Helper: parse size string to KB
-  const parseSizeToKB = (sizeStr?: string): number => {
-    if (!sizeStr) return 0
-    const match = sizeStr.match(/^([\d.]+)\s*(KB|MB|GB|TB)?$/i)
-    if (!match) return 0
-    const value = parseFloat(match[1])
-    const unit = (match[2] || 'KB').toUpperCase()
-    const multipliers: Record<string, number> = { KB: 1, MB: 1024, GB: 1024 * 1024, TB: 1024 * 1024 * 1024 }
-    return value * (multipliers[unit] || 1)
-  }
+  const handleUrlSubmit = useCallback(
+    (input: string) => {
+      const formattedUrl = formatUrlInput(input.trim())
+      if (!formattedUrl) return
 
-  // Helper: parse resolution string to width and height
-  const parseResolution = (resStr?: string): { width: number; height: number } => {
-    if (!resStr) return { width: 0, height: 0 }
-    const match = resStr.match(/^(\d+)\s*[×xX]\s*(\d+)$/)
-    if (!match) return { width: 0, height: 0 }
-    return { width: parseInt(match[1], 10), height: parseInt(match[2], 10) }
-  }
+      setUrl(formattedUrl)
 
-  // Helper: parse duration string to seconds
-  const parseDuration = (durationStr?: string): number => {
-    if (!durationStr) return 0
-    const match = durationStr.match(/^(\d+):(\d{2})(?::(\d{2}))?$/)
-    if (!match) return 0
-    const hours = match[3] ? parseInt(match[1], 10) : 0
-    const minutes = match[3] ? parseInt(match[2], 10) : parseInt(match[1], 10)
-    const seconds = match[3] ? parseInt(match[3], 10) : parseInt(match[2], 10)
-    return hours * 3600 + minutes * 60 + seconds
-  }
-
-  // Filter resources by search and advanced filters
-  const filteredResources = useMemo(() => {
-    let result = resources
-
-    // Text search filter
-    if (snifferSearch) {
-      result = result.filter(
-        (r) =>
-          r.title.toLowerCase().includes(snifferSearch.toLowerCase()) || r.type.includes(snifferSearch.toLowerCase())
-      )
-    }
-
-    // Advanced filters
-    if (advancedFilters) {
-      result = result.filter((r) => {
-        // Type filter
-        if (
-          advancedFilters.type.length > 0 &&
-          !advancedFilters.type.includes('all') &&
-          !advancedFilters.type.includes(r.type)
-        ) {
-          return false
+      if (!activeTab || !isWebviewTab(activeTab)) {
+        const nextTab: Tab = {
+          id: `tab-${Date.now()}`,
+          title: '新标签页',
+          url: formattedUrl,
+          userDataPath: 'default',
+          type: 'webview'
         }
-
-        // Resolution filter (only for images and videos)
-        if (r.type === 'image' || r.type === 'video') {
-          const { width, height } = parseResolution(r.resolution)
-          if (width < advancedFilters.minWidth || height < advancedFilters.minHeight) {
-            return false
-          }
-        }
-
-        // Size filter
-        const sizeKB = parseSizeToKB(r.size)
-        if (sizeKB < advancedFilters.minSize) {
-          return false
-        }
-
-        // Duration filter (only for videos and audio)
-        if (r.type === 'video' || r.type === 'audio') {
-          const durationSec = parseDuration(r.duration)
-          if (durationSec < advancedFilters.minDuration) {
-            return false
-          }
-        }
-
-        return true
-      })
-    }
-
-    return result
-  }, [resources, snifferSearch, advancedFilters])
-
-  // --- Sniffer Resource Handlers ---
-  const handleResourceSelect = useCallback((id: string, selected: boolean) => {
-    setResources((prev) => prev.map((r) => (r.id === id ? { ...r, selected } : r)))
-  }, [])
-
-  const handleSelectAll = useCallback(() => {
-    const visibleIds = new Set(filteredResources.map((r) => r.id))
-    setResources((prev) => prev.map((r) => (visibleIds.has(r.id) ? { ...r, selected: true } : r)))
-  }, [filteredResources])
-
-  const handleClearSelection = useCallback(() => {
-    setResources((prev) => prev.map((r) => (r.selected ? { ...r, selected: false } : r)))
-  }, [])
-
-  const handleClearAll = useCallback(() => {
-    setResources([])
-    setMergeTasks([])
-    setMergeModalVisible(false)
-    setMergeSubmitting(false)
-    const partition = getActivePartition()
-    trpc.sniffer.reset.mutate({ partition }).catch(() => {})
-    setSnifferStats({
-      active: snifferActive,
-      sniffedCount: 0,
-      identifiedCount: 0,
-      discardedCount: 0,
-      analyzingCount: 0
-    })
-  }, [getActivePartition, snifferActive])
-
-  const handleResourceDelete = useCallback((id: string) => {
-    setResources((prev) => prev.filter((r) => r.id !== id))
-  }, [])
-
-  const handleDeleteSelected = useCallback(() => {
-    const selectedResources = resources.filter((r) => r.selected)
-    if (selectedResources.length === 0) {
-      message.warning('请至少选择一个资源')
-      return
-    }
-
-    const selectedIds = new Set(selectedResources.map((resource) => resource.id))
-    setResources((prev) => prev.filter((resource) => !selectedIds.has(resource.id)))
-    setDownloadTasks((prev) => prev.filter((task) => !selectedIds.has(task.resource.id)))
-    setMergeTasks((prev) => prev.filter((task) => !selectedIds.has(task.video.id) && !selectedIds.has(task.audio.id)))
-  }, [resources])
-
-  const handleResourcePreview = useCallback(
-    (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-      setPreviewResource(res)
-      setPreviewVisible(true)
-    },
-    [resources]
-  )
-
-  const downloadResource = useCallback(async (resource: MediaResource) => {
-    await trpc.sniffer.download.mutate({ resource: resource as any })
-  }, [])
-
-  const handleResourceDownload = useCallback(
-    async (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-
-      const existingTask = downloadTasks.find((task) => task.resource.id === id && task.status !== 'error')
-      if (res.downloadStatus === 'processing' || existingTask?.status === 'processing') {
-        message.warning('该资源正在下载，请勿重复操作')
+        setTabs((prev) => [...prev, nextTab])
+        setActiveTabId(nextTab.id)
         return
       }
 
-      if (existingTask?.status === 'pending') {
-        setDownloadModalVisible(true)
-        message.warning('该资源已在下载列表中')
-        return
-      }
-
-      const prompt = buildRedownloadPrompt(res)
-      if (prompt) {
-        const confirmed = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: prompt.title,
-            content: prompt.content,
-            okText: '继续下载',
-            cancelText: '取消',
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false)
-          })
-        })
-        if (!confirmed) return
-      }
-
-      const nextTask = createDownloadTask(res, Date.now())
-      setDownloadTasks((prev) => {
-        const filtered = prev.filter((task) => task.resource.id !== id)
-        return [...filtered, nextTask]
-      })
-      updateResourcesDownloadState([id], {
-        downloadProgress: 0,
-        downloadStatus: 'processing',
-        downloadStatusText: '准备下载'
-      })
-
-      try {
-        await downloadResource(res)
-        setResources((prev) =>
-          prev.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  downloaded: true,
-                  selected: false,
-                  downloadProgress: 100,
-                  downloadStatus: 'success',
-                  downloadStatusText: '下载完成'
-                }
-              : item
-          )
-        )
-        setDownloadTasks((prev) =>
-          prev.map((item) =>
-            item.resource.id === id
-              ? { ...item, status: 'success', statusText: '下载完成', progress: 100, errorMessage: undefined }
-              : item
-          )
-        )
-        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
-        message.success('下载完成，已添加到素材库')
-      } catch (error) {
-        console.error('Sniffer download failed:', error)
-        const errorMessage = (error as Error)?.message || '下载失败，未添加到素材库'
-        updateResourcesDownloadState([id], {
-          downloadProgress: 0,
-          downloadStatus: 'error',
-          downloadStatusText: '下载失败'
-        })
-        setDownloadTasks((prev) =>
-          prev.map((item) =>
-            item.resource.id === id
-              ? {
-                  ...item,
-                  status: 'error',
-                  statusText: '下载失败',
-                  progress: 0,
-                  errorMessage
-                }
-              : item
-          )
-        )
-        message.error(errorMessage)
-      }
+      mainContentRef.current?.loadURL(formattedUrl)
     },
-    [downloadResource, downloadTasks, resources, updateResourcesDownloadState]
+    [activeTab]
   )
-
-  const handleBatchDownloadOpen = useCallback(() => {
-    const selectedResources = resources.filter((r) => r.selected)
-    if (selectedResources.length === 0) {
-      message.warning('请至少选择一个资源')
-      return
-    }
-
-    const pendingResources = selectedResources.filter((resource) => !resource.downloaded)
-    if (pendingResources.length === 0) {
-      message.warning('选中的资源已下载，无需重复加入下载列表')
-      return
-    }
-
-    if (pendingResources.length !== selectedResources.length) {
-      message.info(`已跳过 ${selectedResources.length - pendingResources.length} 个已下载资源`)
-    }
-
-    setDownloadTasks(pendingResources.map((resource, index) => createDownloadTask(resource, index)))
-    setDownloadModalVisible(true)
-  }, [resources])
-
-  const handleBatchDownloadConfirm = useCallback(async () => {
-    const tasksToRun = downloadTasks.filter((task) => task.status !== 'success')
-    if (tasksToRun.length === 0) return
-
-    setDownloadSubmitting(true)
-    const taskIdsToRun = new Set(tasksToRun.map((task) => task.id))
-    const downloadedIds = new Set<string>()
-    let downloadedCount = 0
-
-    setDownloadTasks((prev) =>
-      prev.map((item) =>
-        taskIdsToRun.has(item.id)
-          ? {
-              ...item,
-              status: 'processing' as BatchActionItemStatus,
-              statusText: '下载中',
-              progress: 15,
-              errorMessage: undefined
-            }
-          : item
-      )
-    )
-    updateResourcesDownloadState(
-      Array.from(taskIdsToRun)
-        .map((taskId) => {
-          const task = tasksToRun.find((item) => item.id === taskId)
-          return task?.resource.id || ''
-        })
-        .filter(Boolean),
-      {
-        downloadProgress: 15,
-        downloadStatus: 'processing',
-        downloadStatusText: '下载中'
-      }
-    )
-
-    try {
-      const result = await trpc.sniffer.downloadSelected.mutate({
-        resources: tasksToRun.map((task) => task.resource)
-      })
-
-      const resultMap = new Map(result.items.map((item) => [item.id, item]))
-      for (const task of tasksToRun) {
-        const taskResult = resultMap.get(task.resource.id)
-        if (taskResult?.success) {
-          downloadedIds.add(task.resource.id)
-          downloadedCount += 1
-        } else {
-          console.error('Sniffer batch download failed:', taskResult?.errorMessage || 'Unknown download error')
-        }
-      }
-
-      setDownloadTasks((prev) =>
-        prev.map((item) => {
-          if (!taskIdsToRun.has(item.id)) return item
-          const taskResult = resultMap.get(item.resource.id)
-          if (taskResult?.success) {
-            return {
-              ...item,
-              status: 'success' as BatchActionItemStatus,
-              statusText: '下载完成',
-              progress: 100
-            }
-          }
-          return {
-            ...item,
-            status: 'error' as BatchActionItemStatus,
-            statusText: '下载失败',
-            progress: 0,
-            errorMessage: taskResult?.errorMessage || '下载失败，未添加到素材库'
-          }
-        })
-      )
-
-      if (downloadedCount > 0) {
-        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
-        setResources((prev) =>
-          prev.map((item) =>
-            downloadedIds.has(item.id)
-              ? {
-                  ...item,
-                  downloaded: true,
-                  selected: false,
-                  downloadProgress: 100,
-                  downloadStatus: 'success',
-                  downloadStatusText: '下载完成'
-                }
-              : item
-          )
-        )
-        message.success(`下载完成，已自动添加 ${downloadedCount} 个素材到素材库`)
-      }
-
-      const failedIds = tasksToRun
-        .map((task) => task.resource.id)
-        .filter((resourceId) => !downloadedIds.has(resourceId))
-      if (failedIds.length > 0) {
-        updateResourcesDownloadState(failedIds, {
-          downloadProgress: 0,
-          downloadStatus: 'error',
-          downloadStatusText: '下载失败'
-        })
-      }
-
-      if (tasksToRun.length !== downloadedCount) {
-        message.error('部分资源下载失败，请查看详情后重试')
-      }
-    } catch (error) {
-      console.error('Sniffer batch download failed:', error)
-      setDownloadTasks((prev) =>
-        prev.map((item) =>
-          taskIdsToRun.has(item.id)
-            ? {
-                ...item,
-                status: 'error' as BatchActionItemStatus,
-                statusText: '下载失败',
-                progress: 0,
-                errorMessage: (error as Error)?.message || '下载失败，未添加到素材库'
-              }
-            : item
-        )
-      )
-      updateResourcesDownloadState(
-        tasksToRun.map((item) => item.resource.id),
-        {
-          downloadProgress: 0,
-          downloadStatus: 'error',
-          downloadStatusText: '下载失败'
-        }
-      )
-      message.error((error as Error)?.message || '下载失败，未添加到素材库')
-    } finally {
-      setDownloadSubmitting(false)
-    }
-  }, [downloadTasks, updateResourcesDownloadState])
-
-  const handleMergeOpen = useCallback(() => {
-    const selectedResources = resources.filter(
-      (r) => r.selected && !r.merged && (r.type === 'video' || r.type === 'audio')
-    )
-    if (selectedResources.length < 2) {
-      message.warning('请至少选择一个未合并的视频和一个未合并的音频')
-      return
-    }
-
-    const pairs = pairMergeResources(selectedResources)
-    if (pairs.length === 0) {
-      message.warning('未找到可合并的音视频配对，请检查选中项的时长是否接近')
-      return
-    }
-
-    setMergeTasks(pairs.map((pair, index) => createMergeTask(pair, index)))
-    setMergeModalVisible(true)
-  }, [resources])
-
-  const handleMergeConfirm = useCallback(async () => {
-    const tasksToRun = mergeTasks.filter((task) => task.status !== 'success')
-    if (tasksToRun.length === 0) return
-
-    setMergeSubmitting(true)
-    const taskIdsToRun = new Set(tasksToRun.map((task) => task.id))
-    setMergeTasks((prev) =>
-      prev.map((item) =>
-        taskIdsToRun.has(item.id)
-          ? {
-              ...item,
-              status: 'processing' as BatchActionItemStatus,
-              statusText: '下载并合并中',
-              progress: 15,
-              errorMessage: undefined
-            }
-          : item
-      )
-    )
-
-    const mergedIds = new Set<string>()
-    let mergedCount = 0
-
-    try {
-      const result = await trpc.sniffer.mergeSelected.mutate({
-        tasks: tasksToRun.map((task) => ({
-          id: task.id,
-          video: task.video,
-          audio: task.audio
-        }))
-      })
-
-      const resultMap = new Map(result.items.map((item) => [item.id, item]))
-      for (const task of tasksToRun) {
-        const taskResult = resultMap.get(task.id)
-        if (taskResult?.success) {
-          mergedIds.add(task.video.id)
-          mergedIds.add(task.audio.id)
-          mergedCount += 1
-        } else {
-          console.error('Sniffer merge failed:', taskResult?.errorMessage || 'Unknown merge error')
-        }
-      }
-
-      setMergeTasks((prev) =>
-        prev.map((item) => {
-          if (!taskIdsToRun.has(item.id)) return item
-          const taskResult = resultMap.get(item.id)
-          if (taskResult?.success) {
-            return {
-              ...item,
-              status: 'success' as BatchActionItemStatus,
-              statusText: '合并完成',
-              progress: 100
-            }
-          }
-          return {
-            ...item,
-            status: 'error' as BatchActionItemStatus,
-            statusText: '合并失败',
-            progress: 0,
-            errorMessage: taskResult?.errorMessage || '合并失败，未添加到素材库'
-          }
-        })
-      )
-
-      if (mergedCount > 0) {
-        window.dispatchEvent(new CustomEvent(RESOURCE_LIBRARY_REFRESH_EVENT))
-        setResources((prev) =>
-          prev.map((item) =>
-            mergedIds.has(item.id)
-              ? {
-                  ...item,
-                  selected: false,
-                  merged: true
-                }
-              : item
-          )
-        )
-        message.success(`合并完成，已自动添加 ${mergedCount} 个素材到素材库`)
-      }
-
-      if (tasksToRun.length !== mergedCount) {
-        message.error('部分任务合并失败，请查看详情后重试')
-      }
-    } catch (error) {
-      console.error('Sniffer merge failed:', error)
-      setMergeTasks((prev) =>
-        prev.map((item) =>
-          taskIdsToRun.has(item.id)
-            ? {
-                ...item,
-                status: 'error' as BatchActionItemStatus,
-                statusText: '合并失败',
-                progress: 0,
-                errorMessage: (error as Error)?.message || '合并失败，未添加到素材库'
-              }
-            : item
-        )
-      )
-      message.error((error as Error)?.message || '合并失败，未添加到素材库')
-    } finally {
-      setMergeSubmitting(false)
-    }
-  }, [mergeTasks])
-
-  const handleResourceCopyUrl = useCallback(
-    (id: string) => {
-      const res = resources.find((r) => r.id === id)
-      if (!res) return
-      navigator.clipboard.writeText(res.url).then(() => message.success('链接已复制'))
-    },
-    [resources]
-  )
-
-  const handleResourceMetadataChange = useCallback(
-    (id: string, metadata: Partial<Pick<MediaResource, 'type' | 'resolution' | 'duration' | 'thumbnailUrl'>>) => {
-      setResources((prev) =>
-        prev.map((resource) => {
-          if (resource.id !== id) return resource
-
-          const next = { ...resource, ...metadata }
-          if (
-            next.type === resource.type &&
-            next.resolution === resource.resolution &&
-            next.duration === resource.duration &&
-            next.thumbnailUrl === resource.thumbnailUrl
-          ) {
-            return resource
-          }
-
-          return next
-        })
-      )
-    },
-    []
-  )
-
-  useEffect(() => {
-    if (mergeTasks.length === 0 && downloadTasks.length === 0) return
-
-    const resourceMap = new Map(resources.map((resource) => [resource.id, resource]))
-
-    setMergeTasks((prev) =>
-      prev.map((task) => {
-        const nextVideo = resourceMap.get(task.video.id) ?? task.video
-        const nextAudio = resourceMap.get(task.audio.id) ?? task.audio
-        const nextCoverUrl = nextVideo.thumbnailUrl || nextVideo.url
-
-        if (task.video === nextVideo && task.audio === nextAudio && task.coverUrl === nextCoverUrl) {
-          return task
-        }
-
-        return {
-          ...task,
-          video: nextVideo,
-          audio: nextAudio,
-          coverUrl: nextCoverUrl
-        }
-      })
-    )
-
-    setDownloadTasks((prev) =>
-      prev.map((task) => {
-        const nextResource = resourceMap.get(task.resource.id) ?? task.resource
-        const nextCoverUrl = nextResource.thumbnailUrl || (nextResource.type === 'image' ? nextResource.url : undefined)
-
-        if (task.resource === nextResource && task.coverUrl === nextCoverUrl && task.type === nextResource.type) {
-          return task
-        }
-
-        return {
-          ...task,
-          resource: nextResource,
-          type: nextResource.type,
-          coverUrl: nextCoverUrl
-        }
-      })
-    )
-  }, [resources, mergeTasks.length, downloadTasks.length])
 
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntdApp style={{ height: '100%' }}>
         <div className="app-shell">
-          {/* 1. Left Sidebar — full height */}
           <LeftSidebar
             ref={sidebarRef}
             activeItemId={activeNavId}
             collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((p) => !p)}
+            onToggle={() => setSidebarCollapsed((prev) => !prev)}
             onItemSelect={handleNavSelect}
             onUpdate={fetchBookmarkGroups}
           />
 
-          {/* Right body: TitleBar + Content + StatusBar */}
           <div className="app-body">
-            {/* 2. Title Bar */}
             <TitleBar
               tabs={tabs}
               activeTabId={activeTabId}
@@ -1253,36 +343,7 @@ function App(): React.JSX.Element {
               onForward={() => mainContentRef.current?.goForward()}
               onReload={() => mainContentRef.current?.reload()}
               onUrlChange={setUrl}
-              onUrlSubmit={(u) => {
-                if (!u) return
-                let formattedUrl = u
-                const isUrl =
-                  /^(https?:\/\/)|(localhost)|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|(([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})/.test(
-                    u
-                  )
-                if (isUrl) {
-                  if (!u.startsWith('http://') && !u.startsWith('https://')) {
-                    formattedUrl = 'https://' + u
-                  }
-                } else {
-                  formattedUrl = `https://www.google.com/search?q=${encodeURIComponent(u)}`
-                }
-
-                setUrl(formattedUrl)
-
-                if (tabs.length === 0) {
-                  const newTab: Tab = {
-                    id: `tab-${Date.now()}`,
-                    title: '新标签页',
-                    url: formattedUrl,
-                    userDataPath: 'default'
-                  }
-                  setTabs([newTab])
-                  setActiveTabId(newTab.id)
-                } else {
-                  mainContentRef.current?.loadURL(formattedUrl)
-                }
-              }}
+              onUrlSubmit={handleUrlSubmit}
               onToggleFavorite={handleToggleFavorite}
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}
@@ -1292,13 +353,12 @@ function App(): React.JSX.Element {
                 setUrl('')
               }}
               onCloseOthers={handleCloseOtherTabs}
-              onMenuClick={(k) => console.log('Menu:', k)}
+              onMenuClick={(key) => console.log('Menu:', key)}
               onMinimize={() => trpc.system.minimize.mutate()}
               onMaximize={() => trpc.system.maximize.mutate()}
               onClose={() => trpc.system.close.mutate()}
             />
 
-            {/* 3. Content area: MainContent + SnifferPanel */}
             <div className="app-content">
               <MainContent
                 ref={mainContentRef}
@@ -1308,58 +368,23 @@ function App(): React.JSX.Element {
                 snifferActive={snifferActive}
               />
 
-              {/* 4. Right Sniffer Panel */}
-              <SnifferPanel
-                resources={filteredResources}
-                collapsed={snifferCollapsed}
-                searchText={snifferSearch}
-                stats={snifferStats}
-                advancedFilters={advancedFilters}
-                mergeTasks={mergeTasks}
-                mergeModalVisible={mergeModalVisible}
-                mergeSubmitting={mergeSubmitting}
-                downloadTasks={downloadTasks}
-                downloadModalVisible={downloadModalVisible}
-                downloadSubmitting={downloadSubmitting}
-                onToggle={() => setSnifferCollapsed((p) => !p)}
-                onActiveChange={(active) => {
-                  if (active) {
-                    void handleSnifferStart()
-                    return
-                  }
-                  void handleSnifferStop()
-                }}
-                onSearchChange={setSnifferSearch}
-                onSelectAll={handleSelectAll}
-                onClearSelection={handleClearSelection}
-                onClearAll={handleClearAll}
-                onDeleteSelected={handleDeleteSelected}
-                onMerge={handleMergeOpen}
-                onMergeCancel={() => !mergeSubmitting && setMergeModalVisible(false)}
-                onMergeConfirm={handleMergeConfirm}
-                onBatchDownload={handleBatchDownloadOpen}
-                onBatchDownloadCancel={() => !downloadSubmitting && setDownloadModalVisible(false)}
-                onBatchDownloadConfirm={handleBatchDownloadConfirm}
-                onAdvancedFiltersChange={setAdvancedFilters}
-                onResourceSelect={handleResourceSelect}
-                onResourceDelete={handleResourceDelete}
-                onResourcePreview={handleResourcePreview}
-                onResourceDownload={handleResourceDownload}
-                onResourceCopyUrl={handleResourceCopyUrl}
-                onResourceMetadataChange={handleResourceMetadataChange}
+              <SnifferWorkspace
+                activeTab={activeTab}
+                getActivePartition={getActivePartition}
+                scanPageResources={() => mainContentRef.current?.scanPageResources()}
+                onResourceCountChange={setResourceCount}
+                onActiveStateChange={setSnifferActive}
               />
             </div>
 
-            {/* 5. Status Bar */}
-            <StatusBar status="connected" resourceCount={resources.length} currentUrl={url} />
+            <StatusBar status="connected" resourceCount={resourceCount} currentUrl={url} />
           </div>
         </div>
 
-        {/* Bookmark Create Modal */}
         <Modal
           title="添加收藏"
           open={isBookmarkModalVisible}
-          onOk={handleBookmarkSubmit}
+          onOk={() => void handleBookmarkSubmit()}
           onCancel={() => setIsBookmarkModalVisible(false)}
           okText="添加"
           cancelText="取消"
@@ -1374,9 +399,9 @@ function App(): React.JSX.Element {
             </Form.Item>
             <Form.Item name="parentId" label="收藏分组" rules={[{ required: true, message: '请选择分组' }]}>
               <Select placeholder="请选择分组">
-                {bookmarkGroups.map((g) => (
-                  <Select.Option key={g.id} value={g.id}>
-                    {g.name}
+                {bookmarkGroups.map((group) => (
+                  <Select.Option key={group.id} value={group.id}>
+                    {group.name}
                   </Select.Option>
                 ))}
               </Select>
@@ -1390,18 +415,6 @@ function App(): React.JSX.Element {
             </Form.Item>
           </Form>
         </Modal>
-
-        {/* Resource Preview Modal */}
-        <PreviewModal
-          open={previewVisible}
-          onCancel={() => setPreviewVisible(false)}
-          title={previewResource?.title}
-          type={previewResource?.type}
-          src={previewResource?.url}
-          cover={previewResource?.thumbnailUrl}
-          contentType={previewResource?.contentType}
-          requestHeaders={previewResource?.requestHeaders}
-        />
       </AntdApp>
     </ConfigProvider>
   )

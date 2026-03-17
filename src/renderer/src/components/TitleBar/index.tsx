@@ -13,15 +13,7 @@ import {
   VideoCameraOutlined,
   SettingOutlined
 } from '@ant-design/icons'
-
-export interface Tab {
-  id: string
-  title: string
-  url?: string
-  favicon?: string
-  userDataPath?: string
-  type?: 'webview' | 'resource' | 'system'
-}
+import type { Tab } from '../../features/browser/types'
 
 interface TitleBarProps {
   tabs: Tab[]
@@ -45,6 +37,8 @@ interface TitleBarProps {
   canGoBack?: boolean
   canGoForward?: boolean
 }
+
+export type { Tab } from '../../features/browser/types'
 
 export default function TitleBar({
   tabs,
