@@ -1,6 +1,6 @@
 # Inspiration
 
-![Inspiration Icon](./images/icon.png)
+![Inspiration Icon](./resources/icon.png)
 
 一个把网页浏览、媒体嗅探、批量下载和素材沉淀整合在一起的桌面工作台。
 
