@@ -2,6 +2,7 @@ import { trpc } from '@shared/routers/trpc'
 import { resourceRouter } from '@shared/routers/resource'
 import { bookmarkRouter } from '@shared/routers/bookmark'
 import { configRouter } from '@shared/routers/config'
+import { tagRouter } from '@shared/routers/tag'
 import { systemRouter } from './routers/system'
 import { snifferRouter } from './routers/sniffer'
 
@@ -20,6 +21,7 @@ export const appRouter = trpc.router({
   resource: resourceRouter,
   bookmark: bookmarkRouter,
   config: configRouter,
+  tag: tagRouter,
 
   /**
    * 挂载 Electron 特有的子路由

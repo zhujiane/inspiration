@@ -22,6 +22,7 @@ import {
   FolderOpenOutlined,
   DeleteOutlined,
   EditOutlined,
+  TagsOutlined,
   VideoCameraOutlined,
   FileImageOutlined,
   AudioOutlined,
@@ -30,11 +31,19 @@ import {
 } from '@ant-design/icons'
 import { trpc } from '../lib/trpc'
 import type { Resource } from '@shared/db/resource-schema'
+import type { Tag as ResourceTag } from '@shared/db/tag-schema'
 import { formatDuration, formatSize } from '@shared/utils/format'
 import PreviewModal from '../components/PreviewModal'
 
 const { Search } = Input
 const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
+const TAG_COLORS = ['blue', 'green', 'gold', 'magenta', 'cyan', 'orange', 'geekblue', 'lime'] as const
+
+type ResourceRecord = Resource & {
+  createdAt: string | Date
+  updatedAt: string | Date
+  tags?: ResourceTag[]
+}
 
 /* ============================================================
    Formatters
@@ -68,24 +77,57 @@ const getLocalMediaMeta = async (filePath: string): Promise<LocalMediaMeta> => {
   return (await trpc.system.getLocalMediaMeta.mutate({ filePath })) as LocalMediaMeta
 }
 
+function ResourceKeywordSearch({
+  initialValue = '',
+  onKeywordChange
+}: {
+  initialValue?: string
+  onKeywordChange: (value: string) => void
+}) {
+  const [value, setValue] = useState(initialValue)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      onKeywordChange(value.trim())
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [value, onKeywordChange])
+
+  return (
+    <Search
+      placeholder="搜索素材名称、类型、描述..."
+      allowClear
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      style={{ width: 250 }}
+      prefix={<SearchOutlined />}
+    />
+  )
+}
+
 /* ============================================================
    Resource Page Component
    ============================================================ */
 export default function ResourcePage() {
   const { message, modal } = AntdApp.useApp()
   const [loading, setLoading] = useState(false)
-  const [data, setData] = useState<Resource[]>([])
-  const [searchText, setSearchText] = useState('')
+  const [data, setData] = useState<ResourceRecord[]>([])
+  const [tagOptions, setTagOptions] = useState<{ label: string; value: string }[]>([])
   const [keyword, setKeyword] = useState('')
+  const [selectedTagNames, setSelectedTagNames] = useState<string[]>([])
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
     total: 0
   })
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isBatchTagModalOpen, setIsBatchTagModalOpen] = useState(false)
+  const [batchTagSubmitting, setBatchTagSubmitting] = useState(false)
   const [editingResource, setEditingResource] = useState<Partial<Resource> | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [form] = Form.useForm()
+  const [batchTagForm] = Form.useForm()
 
   // --- Fetch Data ---
   const fetchData = async () => {
@@ -93,10 +135,11 @@ export default function ResourcePage() {
     try {
       const result = await trpc.resource.list.query({
         keyword,
+        tagNames: selectedTagNames,
         page: pagination.current,
         pageSize: pagination.pageSize
       })
-      setData(result.items as unknown as Resource[])
+      setData(result.items as unknown as ResourceRecord[])
       setPagination((prev) => ({
         ...prev,
         total: result.total,
@@ -111,18 +154,28 @@ export default function ResourcePage() {
     }
   }
 
+  const fetchTagOptions = async () => {
+    try {
+      const result = await trpc.tag.list.query({ type: 'resource' })
+      setTagOptions(
+        result.map((item) => ({
+          label: item.name,
+          value: item.name
+        }))
+      )
+    } catch (error) {
+      console.error('Failed to fetch tags:', error)
+      message.error('获取标签失败')
+    }
+  }
+
   useEffect(() => {
     fetchData()
-  }, [keyword, pagination.current, pagination.pageSize])
+  }, [keyword, selectedTagNames, pagination.current, pagination.pageSize])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const nextKeyword = searchText.trim()
-      setKeyword((prev) => (prev === nextKeyword ? prev : nextKeyword))
-    }, 300)
-
-    return () => window.clearTimeout(timer)
-  }, [searchText])
+    fetchTagOptions()
+  }, [])
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -133,7 +186,7 @@ export default function ResourcePage() {
     return () => {
       window.removeEventListener(RESOURCE_LIBRARY_REFRESH_EVENT, handleRefresh)
     }
-  }, [keyword, pagination.current, pagination.pageSize])
+  }, [keyword, selectedTagNames, pagination.current, pagination.pageSize])
 
   // --- Handlers ---
   const handleAddLocal = async () => {
@@ -210,9 +263,12 @@ export default function ResourcePage() {
     }
   }
 
-  const handleEdit = (resource: Resource) => {
+  const handleEdit = (resource: ResourceRecord) => {
     setEditingResource(resource)
-    form.setFieldsValue(resource)
+    form.setFieldsValue({
+      ...resource,
+      tagNames: resource.tags?.map((tag) => tag.name) ?? []
+    })
     setIsModalOpen(true)
   }
 
@@ -261,6 +317,60 @@ export default function ResourcePage() {
     })
   }
 
+  const handleOpenBatchTagModal = () => {
+    if (selectedRowKeys.length === 0) return
+    batchTagForm.setFieldsValue({ tagNames: [] })
+    setIsBatchTagModalOpen(true)
+  }
+
+  const handleBatchTagSubmit = async () => {
+    try {
+      const values = await batchTagForm.validateFields()
+      const nextTagNames = (values.tagNames ?? []).filter(Boolean)
+      if (nextTagNames.length === 0) {
+        message.warning('请选择至少一个标签')
+        return
+      }
+
+      setBatchTagSubmitting(true)
+
+      const resourceIds = selectedRowKeys.map((id) => Number(id))
+      const currentTagsList = await Promise.all(
+        resourceIds.map((mapId) =>
+          trpc.tag.getMapTags.query({
+            type: 'resource',
+            mapId
+          })
+        )
+      )
+
+      await Promise.all(
+        resourceIds.map((mapId, index) => {
+          const mergedTagNames = Array.from(
+            new Set([...(currentTagsList[index] ?? []).map((tag) => tag.name), ...nextTagNames])
+          )
+
+          return trpc.tag.setMapTags.mutate({
+            type: 'resource',
+            mapId,
+            tagNames: mergedTagNames
+          })
+        })
+      )
+
+      message.success(`已为 ${resourceIds.length} 个素材添加标签`)
+      setIsBatchTagModalOpen(false)
+      batchTagForm.resetFields()
+      await fetchTagOptions()
+      await fetchData()
+    } catch (error) {
+      console.error('Batch tag submit error:', error)
+      message.error('批量添加标签失败')
+    } finally {
+      setBatchTagSubmitting(false)
+    }
+  }
+
   const handleOpenFolder = async (path: string) => {
     try {
       await trpc.system.openFolder.mutate({ path })
@@ -281,8 +391,15 @@ export default function ResourcePage() {
     try {
       const values = await form.validateFields()
       if (editingResource?.id) {
-        await trpc.resource.update.mutate({ ...editingResource, ...values, id: editingResource.id })
+        const { tagNames = [], ...resourceValues } = values
+        await trpc.resource.update.mutate({ ...editingResource, ...resourceValues, id: editingResource.id })
+        await trpc.tag.setMapTags.mutate({
+          type: 'resource',
+          mapId: editingResource.id,
+          tagNames
+        })
         message.success('更新成功')
+        await fetchTagOptions()
       }
       setIsModalOpen(false)
       fetchData()
@@ -300,7 +417,15 @@ export default function ResourcePage() {
   }
 
   const handleSearchChange = (value: string) => {
-    setSearchText(value)
+    setKeyword((prev) => (prev === value ? prev : value))
+    setPagination((prev) => ({
+      ...prev,
+      current: 1
+    }))
+  }
+
+  const handleTagFilterChange = (values: string[]) => {
+    setSelectedTagNames(values)
     setPagination((prev) => ({
       ...prev,
       current: 1
@@ -356,7 +481,7 @@ export default function ResourcePage() {
       key: 'name',
       ellipsis: false,
       width: 300,
-      render: (name: string, res: Resource) => (
+      render: (name: string, res: ResourceRecord) => (
         <div style={{ maxWidth: 300, minWidth: 0 }}>
           <Tooltip title={name}>
             <div
@@ -410,6 +535,15 @@ export default function ResourcePage() {
           >
             {res.localPath || res.url}
           </div>
+          {res.tags && res.tags.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', paddingLeft: 4 }}>
+              {res.tags.map((tag, index) => (
+                <Tag key={tag.id} color={TAG_COLORS[index % TAG_COLORS.length]} style={{ marginRight: 0 }}>
+                  {tag.name}
+                </Tag>
+              ))}
+            </div>
+          )}
         </div>
       )
     },
@@ -486,18 +620,28 @@ export default function ResourcePage() {
             <Badge count={pagination.total} color="blue" />
           </Space>
           <Space>
-            <Search
-              placeholder="搜索素材名称、类型、描述..."
+            <ResourceKeywordSearch initialValue={keyword} onKeywordChange={handleSearchChange} />
+            <Select
+              mode="multiple"
               allowClear
-              value={searchText}
-              onSearch={handleSearchChange}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              style={{ width: 250 }}
-              prefix={<SearchOutlined />}
+              placeholder="按标签筛选"
+              value={selectedTagNames}
+              options={tagOptions}
+              onDropdownVisibleChange={(open) => {
+                if (open) fetchTagOptions()
+              }}
+              onChange={handleTagFilterChange}
+              style={{ width: 160 }}
+              maxTagCount="responsive"
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={handleAddLocal} loading={loading}>
               添加本地素材
             </Button>
+            {selectedRowKeys.length > 0 && (
+              <Button icon={<TagsOutlined />} onClick={handleOpenBatchTagModal}>
+                批量加标签 ({selectedRowKeys.length})
+              </Button>
+            )}
             {selectedRowKeys.length > 0 && (
               <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
                 批量删除 ({selectedRowKeys.length})
@@ -538,6 +682,29 @@ export default function ResourcePage() {
       />
 
       <Modal
+        title={`批量添加标签 (${selectedRowKeys.length} 个素材)`}
+        open={isBatchTagModalOpen}
+        onOk={handleBatchTagSubmit}
+        onCancel={() => setIsBatchTagModalOpen(false)}
+        okText="添加"
+        cancelText="取消"
+        confirmLoading={batchTagSubmitting}
+        centered
+        width={500}
+      >
+        <Form form={batchTagForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="tagNames"
+            label="标签"
+            rules={[{ required: true, message: '请至少选择一个标签' }]}
+            extra="会在保留原有标签的基础上，追加到所有已选素材"
+          >
+            <Select mode="tags" placeholder="输入后回车创建标签" options={tagOptions} tokenSeparators={[',', '，']} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
         title="编辑素材记录"
         open={isModalOpen}
         onOk={handleModalSubmit}
@@ -563,6 +730,9 @@ export default function ResourcePage() {
           </Form.Item>
           <Form.Item name="platform" label="平台来源">
             <Input placeholder="例如：本地, 抖音, YouTube..." />
+          </Form.Item>
+          <Form.Item name="tagNames" label="标签">
+            <Select mode="tags" placeholder="输入后回车创建标签" options={tagOptions} tokenSeparators={[',', '，']} />
           </Form.Item>
           <Form.Item name="description" label="备注说明">
             <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
