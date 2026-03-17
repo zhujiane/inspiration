@@ -1,4 +1,6 @@
 import { spawn } from 'child_process'
+import fs from 'fs'
+import path from 'path'
 import ffmpegStatic from 'ffmpeg-static'
 import log from './logger'
 
@@ -11,11 +13,21 @@ type SpawnResult = {
 const DEFAULT_TIMEOUT_MS = 15_000
 const isHttpUrl = (input: string): boolean => input.startsWith('http://') || input.startsWith('https://')
 
-const getFfmpegPath = (): string => {
+export const getFfmpegPath = (): string => {
   if (!ffmpegStatic) {
     throw new Error('ffmpeg binary is not available')
   }
-  return ffmpegStatic
+
+  if (fs.existsSync(ffmpegStatic)) {
+    return ffmpegStatic
+  }
+
+  const unpackedPath = ffmpegStatic.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
+  if (unpackedPath !== ffmpegStatic && fs.existsSync(unpackedPath)) {
+    return unpackedPath
+  }
+
+  throw new Error(`ffmpeg binary not found: ${ffmpegStatic}`)
 }
 
 const assertLocalPath = (source: string): void => {

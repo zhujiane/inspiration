@@ -12,6 +12,7 @@ files:
 asarUnpack:
   - resources/**
   - out/main/db/migrations/**
+  - node_modules/ffmpeg-static/**
 win:
   executableName: inspiration
   target:

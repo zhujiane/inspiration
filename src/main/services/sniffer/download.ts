@@ -4,11 +4,10 @@ import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { db } from '@main/db'
-import ffmpegStatic from 'ffmpeg-static'
 import { configs } from '@shared/db/config-schema'
 import { resources } from '@shared/db/resource-schema'
 import { eq } from 'drizzle-orm'
-import { captureVideoFrameBase64, inspectLocalMedia, mergeMediaTracks } from '../ffmpeg'
+import { captureVideoFrameBase64, getFfmpegPath, inspectLocalMedia, mergeMediaTracks } from '../ffmpeg'
 import { headRequest, requestWithRedirect } from './http'
 import { DEFAULT_USER_AGENT } from './constants'
 import {
@@ -104,13 +103,6 @@ async function inspectHlsManifest(
     contentType,
     isLive: !isVodManifest
   }
-}
-
-function getFfmpegPath(): string {
-  if (!ffmpegStatic) {
-    throw new Error('ffmpeg binary is not available')
-  }
-  return ffmpegStatic
 }
 
 function buildFfmpegInputArgs(headers: Record<string, string>): string[] {
