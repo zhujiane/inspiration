@@ -1,6 +1,6 @@
 {
   "name": "inspiration",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Desktop media sniffer built with Electron, React, and TypeScript",
   "main": "./out/main/index.js",
   "author": "Inspiration Project",
