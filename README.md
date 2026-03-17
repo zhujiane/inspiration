@@ -1,517 +1,284 @@
-# Inspiration - 媒体资源嗅探桌面应用
+# Inspiration
 
-## 项目概述
+![Inspiration Icon](./resources/icon.png)
 
-Inspiration 是一款基于 Electron + React + TypeScript 开发的桌面浏览器应用，核心功能是**媒体资源嗅探**。它可以在用户浏览网页时自动捕获视频、音频、图片等媒体资源，并提供下载、收藏、预览等功能。
+一个把网页浏览、媒体嗅探、批量下载和素材沉淀整合在一起的桌面工作台。
 
-**主要特性：**
+Inspiration 基于 Electron + React + TypeScript 构建，适合在浏览网页时快速定位视频、音频和图片资源，并把结果统一管理到本地素材库中。
 
-- 内嵌浏览器功能（类似简易版浏览器）
-- 三层媒体资源嗅探器（DOM 扫描 + 响应头分析 + URL/类型兜底判断）
-- 收藏夹管理（支持分组、站点 favicon 持久化）
-- 素材资源库管理
-- 系统配置面板
-- 无窗口边框自定义标题栏
+## 快速入口
 
----
+- 下载地址：GitHub Releases
+- 安装包：`inspiration-x.y.z-setup.exe`
+- 当前定位：Windows 桌面端媒体嗅探工具
+- License：Source-available，默认不允许商用分发
 
-## 技术栈
+如果你准备公开发布，建议把上面的“GitHub Releases”替换成实际 Release 链接。
 
-### 核心框架
+## 免责说明
 
-| 类别     | 技术          | 版本    |
-| -------- | ------------- | ------- |
-| 桌面框架 | Electron      | ^39.2.6 |
-| 前端框架 | React         | ^19.2.1 |
-| 构建工具 | electron-vite | ^5.0.0  |
-| 语言     | TypeScript    | ^5.9.3  |
-| 包管理器 | pnpm          | -       |
+本项目仅供学习、研究和处理你本人有合法访问权、下载权或使用权的资源。
 
-### 前端生态
+- 只能获取、保存和整理你自己有权限访问的资源
+- 不得用于抓取、传播、下载或分发他人无授权内容
+- 不得用于任何违法违规、侵权、绕过授权或破坏平台规则的用途
+- 使用者应自行遵守目标网站服务条款及所在地法律法规
 
-| 类别      | 技术                | 版本    |
-| --------- | ------------------- | ------- |
-| UI 组件库 | antd (Ant Design)   | ^6.2.2  |
-| 图标      | @ant-design/icons   | ^6.1.0  |
-| 拖拽排序  | @dnd-kit/core       | ^6.3.1  |
-|           | @dnd-kit/sortable   | ^10.0.0 |
-| 状态/通信 | @trpc/server/client | ^11.9.0 |
+如果你无法确认某项内容是否具备合法权限，请不要使用本工具对其进行获取、下载或传播。
 
-### 后端/数据层
+## 为什么用 Inspiration
 
-| 类别       | 技术           | 版本    |
-| ---------- | -------------- | ------- |
-| ORM        | drizzle-orm    | ^0.45.1 |
-| 数据库     | better-sqlite3 | ^12.6.2 |
-| 数据库工具 | drizzle-kit    | ^0.31.8 |
-| 数据校验   | zod            | ^3.24.1 |
-|            | drizzle-zod    | ^0.8.3  |
+- 一个窗口完成浏览、识别、筛选、下载、整理
+- 不是只给出链接，而是直接给出可操作的资源卡片
+- 支持批量勾选、批量下载和音视频合并处理
+- 下载结果会自动沉淀到素材库，便于后续复用
+- 适合把常用平台和常用页面统一纳入一个工作流
 
-### 多媒体处理
+## 界面预览
 
-| 类别        | 技术          | 版本         |
-| ----------- | ------------- | ------------ |
-| ffmpeg 工具 | ffmpeg-static | ^5.3.0       |
-| ffmpeg 调用 | child_process | Node.js 内置 |
+### 浏览器工作台
 
-### 开发工具链
+左侧提供应用导航、收藏夹和平台入口，上方是标签栏与地址栏，适合在一个窗口里连续浏览多个目标站点。
 
-| 类别            | 技术                 | 版本    |
-| --------------- | -------------------- | ------- |
-| 代码规范        | ESLint               | ^9.39.1 |
-| 代码格式化      | Prettier             | ^3.7.4  |
-| Electron 工具包 | @electron-toolkit/\* | ^4.0.0  |
-| 日志            | electron-log         | ^5.4.3  |
-| 自动更新        | electron-updater     | ^6.3.9  |
-| 环境变量        | dotenv               | ^17.2.4 |
+![浏览器工作台](./resources/书签和tab管理.png)
 
----
+### 视频嗅探面板
 
-## 功能模块
+在浏览网页的同时，右侧嗅探面板会持续收集页面中的媒体资源，并按资源卡片展示类型、大小、分辨率、时长和常用操作。
 
-### 1. 浏览器核心 (Main Browser)
+![视频嗅探面板](./resources/视频嗅探.png)
 
-- **多标签页管理**：支持打开多个网页标签，支持标签切换、关闭、关闭其他等操作
-- **导航控制**：前进、后退、刷新
-- **地址栏**：支持 URL 输入和搜索引擎跳转
-- **自定义标题栏**：无边框窗口，包含标签栏和窗口控制按钮（最小化、最大化、关闭）
+### 合并下载
 
-### 2. 媒体资源嗅探器 (Sniffer)
+对于拆分音视频的资源，可以在批量选择后进入合并流程，集中查看进度并执行下载或处理。
 
-**三层嗅探架构：**
+![合并下载](./resources/合并下载.png)
 
-- **Layer 1 - DOM 扫描**：通过 `executeJavaScript` 扫描页面中的 `<img>`、`<video>`、`<audio>`、`<script>` 等标签
-- **Layer 2 - 响应头分析**：`onResponseStarted` 监听，通过 `Content-Type` 直接确认媒体类型
-- **Layer 3 - URL/类型兜底**：对模糊类型（`application/octet-stream`）结合 URL 和上下文信息进一步判断
+### 素材管理
 
-**嗅探功能：**
+下载后的资源会沉淀到素材库，便于后续检索、查看属性、跳转本地路径和统一管理。
 
-- 自动捕获视频（mp4, webm, mkv, flv, m3u8, mpd 等）
-- 自动捕获音频（mp3, aac, ogg, flac, wav 等）
-- 自动捕获图片（jpg, png, gif, webp, avif 等）
-- 携带原始请求头（Cookie、Referer）解决 403 问题
-- 资源预览、下载、复制链接
-
-### 3. 收藏夹系统 (Bookmarks)
-
-- 分组管理（树形结构）
-- 站点 favicon 自动持久化（Base64 存储）
-- 支持独立 session/partition（每个标签页可拥有独立的 Cookie 和存储）
-
-### 4. 素材资源库 (Resource Library)
-
-- 下载的媒体资源统一管理
-- 支持平台、类型、元数据存储
-
-### 5. 系统配置 (System Config)
-
-- Key-Value 模式的配置存储
-- 配置分组：general、download、sniffer、appearance、shortcut、advanced
-
-### 6. 协议拦截
-
-- 拦截自定义协议（bitbrowser, bytedance, snssdk 等），防止意外弹窗
-- WebView 内安全链接过滤
-
----
-
-## UI 风格
-
-### 整体风格
-
-- **现代简洁**：基于 Ant Design 6.x 的紧凑主题
-- **深色/浅色主题支持**（基于 antd 主题配置）
-- **紧凑布局**：使用 `compact` 主题 token，减小间距和字号
-
-### 主题配置
-
-```typescript
-const antdTheme = {
-  token: {
-    colorPrimary: '#1677ff',
-    fontSize: 12,
-    borderRadius: 4,
-    controlHeight: 28
-  },
-  components: {
-    Button: { controlHeight: 24, paddingInline: 8 },
-    Input: { controlHeight: 26 },
-    Select: { controlHeight: 26 }
-  }
-}
-```
-
-### 布局结构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  TitleBar (自定义标题栏 + 标签页)                         │
-├──────────┬──────────────────────────────────────────────┤
-│          │  Content Area                                │
-│  Left    │  ┌────────────────────────────────────────┐  │
-│  Sidebar │  │  WebView / Resource Page / Config Page  │  │
-│          │  │                                        │  │
-│  (收藏夹) │  └────────────────────────────────────────┘  │
-│          ├──────────────────────────────────────────────┤
-│          │  Sniffer Panel (右侧嗅探面板，可折叠)          │
-├──────────┴──────────────────────────────────────────────┤
-│  Status Bar                                             │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 组件设计
-
-- **TitleBar**：集成导航、地址栏、标签管理、窗口控制
-- **LeftSidebar**：收藏夹树形导航，支持折叠
-- **MainContent**：WebView 嵌入或内部页面渲染
-- **SnifferPanel**：资源列表、搜索、批量操作
-- **PreviewModal**：媒体预览（图片/视频/音频）
-- **FloatingCompass**：悬浮罗盘（快捷导航）
-
----
-
-## 架构设计
-
-### 目录结构
-
-```
-src/
-├── main/                    # Electron 主进程
-│   ├── index.ts             # 应用入口，窗口管理
-│   ├── logger.ts            # 日志初始化
-│   ├── router.ts            # tRPC 主路由聚合
-│   ├── trpc.ts              # tRPC IPC 处理器
-│   ├── db/                  # 数据库初始化和种子数据
-│   │   ├── index.ts
-│   │   └── seeds.ts
-│   ├── routers/             # 业务路由
-│   │   ├── sniffer.ts       # 嗅探器核心逻辑
-│   │   ├── system.ts        # 系统操作（窗口控制）
-│   │   └── ...
-│   └── migrations/          # Drizzle 迁移文件
-│
-├── preload/                 # 预加载脚本
-│   └── index.ts             # 暴露 IPC 桥接
-│
-├── renderer/                # React 前端
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx          # 主应用组件
-│       ├── main.tsx         # 入口
-│       ├── components/      # UI 组件
-│       │   ├── TitleBar/
-│       │   ├── LeftSidebar/
-│       │   ├── MainContent/
-│       │   ├── SnifferPanel/
-│       │   ├── PreviewModal/
-│       │   └── ...
-│       ├── pages/           # 页面组件
-│       │   ├── config.tsx
-│       │   └── resource.tsx
-│       ├── lib/              # 工具库
-│       │   └── trpc.ts       # tRPC 客户端
-│       ├── app/              # 应用级目录
-│       │   ├── constants/
-│       │   ├── hooks/
-│       │   └── utils/
-│       ├── assets/          # 静态资源
-│       │   └── main.css
-│       └── types/
-│
-└── shared/                  # 主进程和渲染进程共享
-    ├── db/                  # 数据库 Schema
-    │   ├── index.ts
-    │   ├── base.ts          # 基础字段定义
-    │   ├── bookmark-schema.ts
-    │   ├── config-schema.ts
-    │   └── resource-schema.ts
-    └── routers/             # tRPC 路由定义（共享）
-        ├── router.ts
-        ├── trpc.ts
-        ├── bookmark.ts
-        ├── config.ts
-        └── resource.ts
-```
-
-### 进程间通信
-
-- **tRPC**：主推方式，用于业务逻辑调用
-  - 主进程：`@trpc/server` + `ipcMain.handle`
-  - 渲染进程：`@trpc/client` + `createTRPCReact`
-- **IPC 桥接**：Preload 脚本暴露 `snifferBridge` 用于实时事件推送
-
-### 数据流
-
-```
-User Action → React Component → tRPC Client
-                                     ↓
-                              IPC Channel
-                                     ↓
-                              tRPC Server (Main)
-                                     ↓
-                              SQLite (better-sqlite3)
-```
-
-### 数据库设计
-
-- **better-sqlite3**：同步操作，高性能
-- **drizzle-orm**：类型安全的 ORM
-- **drizzle-kit**：迁移管理
-- **Schema 共享**：`src/shared/db` 同时被 main 和 build 输出使用
-
----
-
-## 代码规范
-
-### 语言规范
-
-- **TypeScript**：全项目使用 TypeScript，严格类型检查
-- **ESLint**：代码质量检查，基于 `@electron-toolkit/eslint-config-ts`
-- **Prettier**：代码格式化
-- **EditorConfig**：编辑器统一配置
-
-### Prettier 配置
-
-```yaml
-singleQuote: true # 使用单引号
-semi: false # 不使用分号
-printWidth: 120 # 行宽 120
-trailingComma: none # 不使用尾随逗号
-```
-
-### ESLint 规则
-
-- 关闭：`@typescript-eslint/no-explicit-any`、`explicit-function-return-type`
-- 警告：`@typescript-eslint/no-unused-vars`、`prefer-const`
-- React Hooks：启用 `eslint-plugin-react-hooks`
-- React Refresh：支持 Vite HMR
-
-### 代码风格
-
-- **组件文件结构**：组件代码直接写在 `index.tsx` 中，不拆分单独文件
-- **Hooks 分离**：复杂逻辑提取到 `app/hooks/` 目录
-- **类型定义**：统一放在 `types/` 目录或组件同级目录
-- **Schema 导出**：`src/shared/db` 集中管理所有数据表 Schema
-
-### 数据库 Schema 规范
-
-- 使用 `drizzle-orm` 定义表结构
-- 使用 `drizzle-zod` 自动生成 Zod 验证 Schema
-- 统一导出类型：`$inferSelect`（查询）、`$inferInsert`（插入）
-- 基础字段（id, createdAt, updatedAt）统一在 `base.ts` 中管理
-
-### 命名规范
-
-- **文件命名**：
-  - 组件目录：`PascalCase`（如 `TitleBar/`）
-  - 组件文件：`index.tsx`（目录即组件）
-  - 其他文件：`camelCase`（如 `trpc.ts`、`sniffer.ts`）
-- **变量命名**：
-  - 组件：`PascalCase`
-  - 函数/变量：`camelCase`
-  - 常量：`UPPER_SNAKE_CASE`
-- **CSS 类名**：BEM 风格或 `kebab-case`
-
----
-
-## 常用库
-
-### UI 库
-
-| 库                | 用途      | 关键特性                   |
-| ----------------- | --------- | -------------------------- |
-| antd              | UI 组件库 | 完整的企业级组件，主题定制 |
-| @ant-design/icons | 图标库    | 配套 antd 的图标集         |
-
-### 拖拽交互
-
-| 库                 | 用途         |
-| ------------------ | ------------ |
-| @dnd-kit/core      | 拖拽核心     |
-| @dnd-kit/sortable  | 排序列表     |
-| @dnd-kit/utilities | 拖拽工具函数 |
-
-### 数据层
-
-| 库             | 用途          |
-| -------------- | ------------- |
-| drizzle-orm    | Type-safe ORM |
-| better-sqlite3 | SQLite 驱动   |
-| drizzle-kit    | 迁移管理      |
-| zod            | 运行时校验    |
-| drizzle-zod    | Zod 集成      |
-
-### Electron 生态
-
-| 库                   | 用途                 |
-| -------------------- | -------------------- |
-| electron-vite        | Vite + Electron 构建 |
-| @electron-toolkit/\* | Electron 工具集      |
-| electron-log         | 日志系统             |
-| electron-builder     | 打包发布             |
-
-### 多媒体
-
-| 库            | 用途            |
-| ------------- | --------------- |
-| child_process | FFmpeg 命令调用 |
-| ffmpeg-static | FFmpeg 二进制   |
-
-### 通信
-
-| 库           | 用途        |
-| ------------ | ----------- |
-| @trpc/server | 服务端 tRPC |
-| @trpc/client | 客户端 tRPC |
-| zod          | 输入校验    |
-
----
-
-## 最佳实践
-
-### 1. 项目初始化
+![素材管理](./resources/素材列表.png)
+
+## 核心能力
+
+### 浏览与导航
+
+- 内嵌浏览器和多标签页
+- 地址输入、搜索、前进、后退、刷新
+- 收藏夹和平台导航入口
+
+### 媒体资源识别
+
+应用会结合多种方式识别页面中的媒体资源：
+
+- 扫描页面 DOM 中的媒体标签
+- 监听网络响应并分析 `Content-Type`
+- 结合 URL 后缀和上下文信息做补充判断
+
+当前更适合识别的资源类型包括：
+
+- 视频：`mp4`、`webm`、`m3u8`、`mpd`
+- 音频：`mp3`、`aac`、`wav`、`ogg`
+- 图片：`jpg`、`png`、`webp`、`gif`、`avif`
+
+### 结果操作
+
+- 实时查看资源列表
+- 复制资源链接
+- 预览部分媒体内容
+- 下载单个资源
+- 批量勾选与批量处理
+- 对拆分音视频执行合并处理
+
+### 本地素材沉淀
+
+- 统一保存已下载素材
+- 展示文件预览、大小、分辨率和时长
+- 支持检索和管理本地资源
+
+## 安装
+
+### 普通用户
+
+1. 打开 GitHub Releases 页面
+2. 下载最新的 Windows 安装包 `inspiration-x.y.z-setup.exe`
+3. 双击安装并启动应用
+
+如果 Windows 弹出安全提示，请先确认下载来源、仓库地址和版本号，再决定是否继续安装。
+
+### 开发者
+
+环境要求：
+
+- Node.js 22+
+- pnpm 10+
+- Windows 环境用于构建 Windows 安装包
+
+安装依赖：
 
 ```bash
-# 安装依赖
 pnpm install
-
-# 开发模式
-pnpm dev
-
-# 构建
-pnpm build
-
-# 数据库迁移
-pnpm db:run    # generate + migrate
-pnpm db:push   # push schema to db
-pnpm db:studio # GUI 管理
 ```
 
-### 2. 添加新功能流程
-
-1. **定义 Schema**：在 `src/shared/db/` 中添加数据表
-2. **编写 Router**：在 `src/shared/routers/` 或 `src/main/routers/` 中实现逻辑
-3. **创建组件**：在 `src/renderer/src/components/` 中创建 UI
-4. **连接前端**：在 `App.tsx` 中使用 tRPC 调用后端
-
-### 3. 数据库操作
-
-```typescript
-// 查询
-const result = await db.select().from(bookmarks).all()
-
-// 插入
-await db.insert(bookmarks).values({ name: '新书签', type: 2 })
-
-// 更新
-await db.update(bookmarks).set({ name: '新名称' }).where(eq(bookmarks.id, id))
-
-// 删除
-await db.delete(bookmarks).where(eq(bookmarks.id, id))
-```
-
-### 4. tRPC 调用
-
-```typescript
-// 后端定义
-export const bookmarkRouter = router({
-  list: publicProcedure.query(async () => { ... }),
-  create: publicProcedure
-    .input(bookmarkCreateSchema)
-    .mutation(async ({ input }) => { ... }),
-})
-
-// 前端调用
-const bookmarks = await trpc.bookmark.list.query()
-await trpc.bookmark.create.mutate({ name: 'test', type: 2 })
-```
-
-### 5. 预加载脚本
-
-```typescript
-// 暴露 API 到渲染.exposeInMain进程
-contextBridgeWorld('api', {
-  // 自定义方法
-})
-
-// 事件推送（主 → 渲染）
-ipcRenderer.on('channel-name', (event, data) => {
-  // 处理
-})
-```
-
-### 6. 日志使用
-
-```typescript
-import log from './logger'
-
-log.info('应用启动')
-log.debug('调试信息', { data })
-log.error('错误', error)
-```
-
-### 7. 样式管理
-
-- 使用 CSS 模块或全局 CSS 文件
-- 通过 `main.css` 定义全局样式
-- 组件特定样式使用 `index.module.css` 或内联
-
-### 8. 配置管理
-
-- 开发环境：项目根目录 `out/db.sqlite`
-- 生产环境：`app.getPath('userData')`
-- 环境判断：`import { is } from '@electron-toolkit/utils'`
-
----
-
-## 构建与发布
-
-### 构建命令
+启动开发环境：
 
 ```bash
-# 开发预览
-pnpm start
-
-# Windows 构建
-pnpm build:win
-
-# macOS 构建
-pnpm build:mac
-
-# Linux 构建
-pnpm build:linux
-
-# 仅打包（不签名）
-pnpm build:unpack
+npm run dev
 ```
 
-### 打包配置
+执行类型检查：
 
-- 入口：`electron-builder.yml`
-- 输出：`dist/`
-- Windows：NSIS 安装包
-- macOS：DMG
-- Linux：AppImage
+```bash
+npm run typecheck
+```
 
----
+构建生产代码：
 
-## 开发提示
+```bash
+npm run build
+```
 
-### 常用快捷键
+构建 Windows 安装包：
 
-| 快捷键 | 功能           |
-| ------ | -------------- |
-| F12    | 开发者工具     |
-| Ctrl+R | 刷新（开发时） |
+```bash
+npm run build:win
+```
 
-### 调试技巧
+## 3 分钟上手
 
-1. **主进程调试**：在 VSCode 中添加调试配置
-2. **渲染进程调试**：F12 打开 DevTools
-3. **数据库调试**：`pnpm db:studio` 打开 GUI
+### 1. 打开目标网页
 
-### 常见问题
+在顶部地址栏输入网址，或通过左侧收藏夹、平台入口进入目标页面。
 
-1. **Native 模块构建失败**：确保运行 `pnpm postinstall`
-2. **热更新不生效**：检查 `electron-vite` 配置
-3. **数据库锁定**：确保没有多个实例同时运行
+### 2. 触发真实资源加载
+
+很多资源不会在页面初次打开时立刻出现。建议继续执行实际浏览动作：
+
+- 播放视频
+- 切换清晰度
+- 翻页或滚动页面
+- 打开详情内容
+
+### 3. 在右侧嗅探面板查看结果
+
+嗅探面板会持续展示当前页面识别到的资源，通常可以直接看到：
+
+- 资源类型
+- 文件大小
+- 分辨率
+- 时长
+- 缩略图或封面
+
+### 4. 选择后续操作
+
+你可以根据需要执行：
+
+- 复制链接
+- 打开预览
+- 下载单个资源
+- 勾选多个资源后批量下载
+- 对拆分音视频执行合并处理
+
+### 5. 在素材库里统一管理
+
+下载完成后，进入素材管理页面查看已保存内容，并继续做检索、定位和整理。
+
+## 典型场景
+
+### 提取网页视频地址
+
+1. 打开目标视频页面
+2. 播放视频或触发页面请求
+3. 在右侧面板定位视频资源
+4. 复制链接或直接下载
+
+### 批量下载页面图片或短视频
+
+1. 打开图文页、列表页或素材页
+2. 滚动页面，让更多资源加载出来
+3. 在嗅探结果中勾选目标条目
+4. 执行批量下载
+
+### 处理音视频分离资源
+
+1. 在结果列表中选择对应的音频和视频资源
+2. 打开合并下载窗口
+3. 确认待处理条目
+4. 执行合并或下载
+
+### 沉淀常用素材
+
+1. 将常用平台加入收藏夹
+2. 下载有权限保存的素材
+3. 在素材库中持续整理历史资源
+
+## 常见问题
+
+### 为什么页面打开了，但没有嗅探到资源？
+
+常见原因包括：
+
+- 页面资源还没有真正发起请求
+- 资源需要播放、点击或滚动后才加载
+- 目标内容使用了 DRM 或更强的保护机制
+- 页面使用了较严格的反抓取策略
+- 当前资源类型不在可识别范围内
+
+建议先尝试刷新页面、触发播放、切换清晰度，或者继续滚动页面后再观察结果。
+
+### 为什么复制出来的链接不能直接打开？
+
+某些站点的媒体资源依赖 `Cookie`、`Referer` 或当前页面会话。即使链接本身是正确的，离开原始浏览环境后也可能出现 403、失效或返回空内容。
+
+### 是否支持所有网站？
+
+不支持。不同网站的资源加载方式差异很大，项目会尽量识别常见公开媒体请求，但不保证适配所有站点。
+
+### 支持哪些平台？
+
+当前更适合优先发布和使用 Windows 版本。项目本身具备跨平台构建能力，但实际可用性仍需要分别验证。
+
+## 注意事项
+
+- 本工具仅应用于你有权访问、保存和使用的资源
+- 严禁将本工具用于任何非法用途、侵权用途或未授权内容获取
+- 请自行遵守目标网站服务条款及所在地法律法规
+- 本项目不承诺适配所有网站
+- 不提供 DRM 绕过能力
+- 某些站点的资源可能受登录态、请求头和会话环境影响
+
+## 开发信息
+
+项目结构：
+
+```text
+src/
+  main/        Electron 主进程
+  preload/     预加载桥接层
+  renderer/    React 渲染进程
+  shared/      共享类型与路由定义
+resources/     项目图标与 README 截图资源
+```
+
+技术栈：
+
+- Electron
+- React
+- TypeScript
+- electron-vite
+- Ant Design
+- tRPC
+- Drizzle ORM
+- better-sqlite3
+- ffmpeg-static
+
+## License
+
+本项目采用半开源的 source-available 许可方式发布。
+
+- 允许查看源码
+- 允许个人使用和内部使用
+- 默认不允许商用分发、二次售卖和托管服务
+
+详细条款请查看 [LICENSE](./LICENSE)。

@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: inspiration
+appId: com.inspiration.app
+productName: Inspiration
 directories:
   buildResources: build
 files:
@@ -39,8 +39,5 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
