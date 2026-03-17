@@ -14,6 +14,12 @@ asarUnpack:
   - out/main/db/migrations/**
 win:
   executableName: inspiration
+  target:
+    - nsis
+publish:
+  provider: github
+  owner: zhujiane
+  repo: inspiration
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

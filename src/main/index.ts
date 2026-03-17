@@ -6,6 +6,7 @@ import { initDb } from './db'
 import { setupTRPC } from './services/trpc'
 import log, { initLogger } from './services/logger'
 import { registerBlockedSchemes, setupWebContentPolicies } from './services/protocol'
+import { initUpdater } from './services/updater'
 
 function createWindow(): BrowserWindow {
   // Create the browser window.
@@ -71,6 +72,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupWebContentPolicies(mainWindow)
   setupTRPC()
+  initUpdater(mainWindow)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {
