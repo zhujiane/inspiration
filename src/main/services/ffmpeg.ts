@@ -18,13 +18,18 @@ export const getFfmpegPath = (): string => {
     throw new Error('ffmpeg binary is not available')
   }
 
-  if (fs.existsSync(ffmpegStatic)) {
-    return ffmpegStatic
+  const unpackedPath = ffmpegStatic.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
+  if (unpackedPath !== ffmpegStatic) {
+    if (fs.existsSync(unpackedPath)) {
+      log.info(`[FFmpeg] using unpacked binary: ${unpackedPath}`)
+      return unpackedPath
+    }
+    throw new Error(`ffmpeg unpacked binary not found: ${unpackedPath}`)
   }
 
-  const unpackedPath = ffmpegStatic.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
-  if (unpackedPath !== ffmpegStatic && fs.existsSync(unpackedPath)) {
-    return unpackedPath
+  if (fs.existsSync(ffmpegStatic)) {
+    log.info(`[FFmpeg] using binary: ${ffmpegStatic}`)
+    return ffmpegStatic
   }
 
   throw new Error(`ffmpeg binary not found: ${ffmpegStatic}`)
