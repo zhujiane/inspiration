@@ -24,6 +24,7 @@ import {
   CompressOutlined,
   FolderOpenOutlined,
   ImportOutlined,
+  PlayCircleOutlined,
   PictureOutlined,
   RetweetOutlined,
   ScissorOutlined,
@@ -41,6 +42,7 @@ import type {
 import { buildPreviewProxyUrl } from '../lib/media'
 import { trpc } from '../lib/trpc'
 import { formatDuration, formatSize } from '@shared/utils/format'
+import PreviewModal from './PreviewModal'
 
 type BatchVideoResource = Pick<Resource, 'id' | 'name' | 'type' | 'localPath' | 'cover' | 'metadata'>
 
@@ -73,6 +75,13 @@ type BatchResultRecord = {
   error?: string
   assets: BatchResultAsset[]
   importedCount: number
+}
+
+type BatchPreviewAsset = {
+  title: string
+  type?: string
+  src: string
+  cover?: string
 }
 
 type BatchTabState = {
@@ -226,6 +235,7 @@ export default function ResourceBatchVideoModal({
   const [activeTabKey, setActiveTabKey] = useState<string>()
   const [tabs, setTabs] = useState<BatchTabState[]>([])
   const [capability, setCapability] = useState<VideoProcessingCapability | null>(null)
+  const [previewAsset, setPreviewAsset] = useState<BatchPreviewAsset | null>(null)
   const tabsRef = useRef<BatchTabState[]>([])
   const pollTimersRef = useRef<Record<string, number>>({})
   const nextTabIdRef = useRef(0)
@@ -248,6 +258,7 @@ export default function ResourceBatchVideoModal({
       setTabs([])
       setActiveTabKey(undefined)
       setCapability(null)
+      setPreviewAsset(null)
     }
   }, [open])
 
@@ -641,6 +652,17 @@ export default function ResourceBatchVideoModal({
     }))
   }
 
+  const handlePreviewAsset = (asset?: BatchResultAsset) => {
+    if (!asset?.path) return
+
+    setPreviewAsset({
+      title: asset.name,
+      type: asset.meta?.type || getResourceTypeLabel(asset.meta, asset.path),
+      src: asset.path,
+      cover: asset.meta?.cover
+    })
+  }
+
   const getTaskStateLabel = (state?: BatchVideoProcessStatus['state']): string => {
     if (state === 'running') return '处理中'
     if (state === 'completed') return '已完成'
@@ -729,7 +751,7 @@ export default function ResourceBatchVideoModal({
           <div className="resource-batch__engine-placeholder"></div>
         )}
 
-        {strategy ? <div className="resource-batch__engine-tip">{strategy.description}</div> : null}
+        {strategy ? <div className="resource-batch__efngine-tip">{strategy.description}</div> : null}
 
         {currentCapability?.adapters?.length ? (
           <div className="resource-batch__adapter-list">
@@ -1238,121 +1260,117 @@ export default function ResourceBatchVideoModal({
       )
     }
 
-    const successCount = tab.results.filter((item) => item.status === 'success').length
-    const errorCount = tab.results.length - successCount
     return (
       <div className="resource-batch__results">
-        <div className="resource-batch__summary">
-          <div className="resource-batch__summary-card">
-            <span>成功素材</span>
-            <strong>{successCount}</strong>
-          </div>
-          <div className="resource-batch__summary-card">
-            <span>失败素材</span>
-            <strong>{errorCount}</strong>
-          </div>
-        </div>
         <div className="resource-batch__result-list">
-          {tab.results.map((item) => (
-            <Card
-              key={item.inputPath}
-              size="small"
-              className="resource-batch__result-card"
-              title={
-                <div className="resource-batch__result-title">
-                  <span>{item.inputName}</span>
-                  <Tag color={item.status === 'success' ? 'success' : 'error'}>
-                    {item.status === 'success' ? '处理完成' : '处理失败'}
-                  </Tag>
-                </div>
-              }
-              extra={
-                item.status === 'success' && item.outputPaths.length > 0 ? (
-                  <Space size={8}>
-                    <Tooltip title="打开第一个输出文件">
-                      <Button
-                        size="small"
-                        icon={<FolderOpenOutlined />}
-                        onClick={() => trpc.system.openFile.mutate(item.outputPaths[0])}
-                      />
-                    </Tooltip>
-                    <Tooltip title="打开输出目录">
-                      <Button
-                        size="small"
-                        icon={<VideoCameraOutlined />}
-                        onClick={() => trpc.system.openFile.mutate(item.outputDir)}
-                      />
-                    </Tooltip>
-                    <Tooltip title="导入到素材库">
-                      <Button
-                        size="small"
-                        icon={<ImportOutlined />}
-                        onClick={() => handleManualImport(tab.id, item.inputPath)}
-                      />
-                    </Tooltip>
-                  </Space>
-                ) : null
-              }
-            >
-              {item.status === 'error' ? (
-                <div className="resource-batch__error-row">
-                  <CloseCircleFilled />
-                  <span>{item.error || '处理失败'}</span>
-                </div>
-              ) : (
-                <>
-                  <div className="resource-batch__status-row">
-                    <CheckCircleFilled />
-                    <span>
-                      生成 {item.outputPaths.length} 个文件
-                      {item.importedCount > 0 ? `，其中 ${item.importedCount} 个已导入素材库` : ''}
-                    </span>
-                  </div>
-                  <div className="resource-batch__asset-grid">
-                    {item.assets.map((asset) => {
-                      const previewSrc =
-                        asset.meta?.cover ||
-                        (asset.meta?.type === 'image' ? buildPreviewProxyUrl(asset.path) : undefined)
-                      const metrics = [
-                        asset.meta?.size ? formatSize(asset.meta.size) : '',
-                        asset.meta?.width && asset.meta?.height ? `${asset.meta.width} x ${asset.meta.height}` : '',
-                        asset.meta?.duration ? formatDuration(asset.meta.duration) : ''
-                      ].filter(Boolean)
-                      return (
-                        <div key={asset.path} className="resource-batch__asset-card">
-                          <div className="resource-batch__asset-preview">
-                            {previewSrc ? (
-                              <img src={previewSrc} alt={asset.name} />
-                            ) : asset.meta?.type === 'audio' ? (
-                              <AudioOutlined />
-                            ) : (
-                              <VideoCameraOutlined />
-                            )}
-                          </div>
-                          <div className="resource-batch__asset-info">
-                            <div className="resource-batch__asset-name" title={asset.name}>
-                              {asset.name}
-                            </div>
-                            <div className="resource-batch__asset-metrics">
-                              {metrics.map((metric) => (
-                                <span key={metric}>{metric}</span>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {item.outputPaths.length > item.assets.length ? (
-                    <div className="resource-batch__more-text">
-                      还有 {item.outputPaths.length - item.assets.length}{' '}
-                      个输出文件未在此处展开，可直接打开输出目录查看。
+          {tab.results.map((item) => {
+            const primaryAsset = item.assets[0]
+            return (
+              <Card
+                key={item.inputPath}
+                size="small"
+                className={`resource-batch__result-card${
+                  item.status === 'error' ? ' resource-batch__result-card--error' : ''
+                }`}
+                title={
+                  <div className="resource-batch__result-title">
+                    <div className="resource-batch__result-title-main">
+                      <span className="resource-batch__result-title-text" title={item.inputName}>
+                        {item.inputName}
+                      </span>
                     </div>
-                  ) : null}
-                </>
-              )}
-            </Card>
-          ))}
+                  </div>
+                }
+                extra={
+                  item.status === 'success' && item.outputPaths.length > 0 ? (
+                    <Space size={8}>
+                      <Tooltip title="预览输出文件">
+                        <Button
+                          size="small"
+                          icon={<PlayCircleOutlined />}
+                          onClick={() => handlePreviewAsset(primaryAsset)}
+                          disabled={!primaryAsset}
+                        />
+                      </Tooltip>
+                      <Tooltip title="打开输出目录">
+                        <Button
+                          size="small"
+                          icon={<FolderOpenOutlined />}
+                          onClick={() => trpc.system.openFile.mutate(item.outputDir)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="导入到素材库">
+                        <Button
+                          size="small"
+                          icon={<ImportOutlined />}
+                          onClick={() => handleManualImport(tab.id, item.inputPath)}
+                        />
+                      </Tooltip>
+                    </Space>
+                  ) : null
+                }
+              >
+                {item.status === 'error' ? (
+                  <div className="resource-batch__error-row">
+                    <CloseCircleFilled />
+                    <span>{item.error || '处理失败'}</span>
+                  </div>
+                ) : (
+                  <div className="resource-batch__result-success">
+                    {item.importedCount > 0 ? (
+                      <div className="resource-batch__status-row">
+                        <CheckCircleFilled />
+                        <span>已导入素材库 {item.importedCount} 个</span>
+                      </div>
+                    ) : null}
+                    <div className="resource-batch__asset-shell">
+                      <div className="resource-batch__asset-grid">
+                        {item.assets.map((asset) => {
+                          const previewSrc =
+                            asset.meta?.cover ||
+                            (asset.meta?.type === 'image' ? buildPreviewProxyUrl(asset.path) : undefined)
+                          const metrics = [
+                            asset.meta?.size ? formatSize(asset.meta.size) : '',
+                            asset.meta?.width && asset.meta?.height ? `${asset.meta.width} x ${asset.meta.height}` : '',
+                            asset.meta?.duration ? formatDuration(asset.meta.duration) : ''
+                          ].filter(Boolean)
+
+                          return (
+                            <button
+                              key={asset.path}
+                              type="button"
+                              className="resource-batch__asset-card"
+                              onClick={() => handlePreviewAsset(asset)}
+                            >
+                              <div className="resource-batch__asset-preview">
+                                {previewSrc ? (
+                                  <img src={previewSrc} alt={asset.name} />
+                                ) : asset.meta?.type === 'audio' ? (
+                                  <AudioOutlined />
+                                ) : (
+                                  <VideoCameraOutlined />
+                                )}
+                              </div>
+                              <div className="resource-batch__asset-info">
+                                <div className="resource-batch__asset-name" title={asset.name}>
+                                  {asset.name}
+                                </div>
+                                <div className="resource-batch__asset-metrics">
+                                  {metrics.map((metric) => (
+                                    <span key={metric}>{metric}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )
+          })}
         </div>
       </div>
     )
@@ -1442,15 +1460,32 @@ export default function ResourceBatchVideoModal({
             >
               开始处理 {eligibleResources.length} 个视频
             </Button>
-            {tab.progress ? (
-              <Tag color={getTaskStateTagColor(tab.progress.state)}>{getTaskStateLabel(tab.progress.state)}</Tag>
-            ) : null}
           </div>
 
           <Card
             size="small"
             className="resource-batch__panel-card resource-batch__sidebar-card resource-batch__results-card"
-            title="处理结果"
+            title={
+              <div className="resource-batch__results-head">
+                <span className="resource-batch__results-title">处理结果</span>
+                <div className="resource-batch__summary resource-batch__summary--inline">
+                  <span
+                    className="resource-batch__summary-metric resource-batch__summary-metric--success"
+                    title="成功"
+                    aria-label={`成功 ${tab.results.filter((item) => item.status === 'success').length}`}
+                  >
+                    {tab.results.filter((item) => item.status === 'success').length}
+                  </span>
+                  <span
+                    className="resource-batch__summary-metric resource-batch__summary-metric--error"
+                    title="失败"
+                    aria-label={`失败 ${tab.results.filter((item) => item.status === 'error').length}`}
+                  >
+                    {tab.results.filter((item) => item.status === 'error').length}
+                  </span>
+                </div>
+              </div>
+            }
             extra={
               <Button
                 size="small"
@@ -1567,7 +1602,7 @@ export default function ResourceBatchVideoModal({
         .resource-batch__tab-content { display: flex; flex-direction: column; min-height: 100%; }
         .resource-batch__workbench { display: grid; grid-template-columns: minmax(0, 1fr) 308px; gap: 14px; align-items: stretch; min-height: 0; height: 100%; }
         .resource-batch__workbench-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-        .resource-batch__result-sidebar { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; height: calc(78vh - 116px); max-height: calc(78vh - 116px); }
+        .resource-batch__result-sidebar { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0;  }
         .resource-batch__result-toolbar { display: flex; flex-direction: column; gap: 8px; }
         .resource-batch__result-toolbar .ant-tag { width: fit-content; margin-inline-end: 0; }
         .resource-batch__result-run { width: 100%; }
@@ -1582,8 +1617,11 @@ export default function ResourceBatchVideoModal({
         .resource-batch__panel-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--batch-primary); }
         .resource-batch__sidebar-card { display: flex; flex-direction: column; min-height: 0; }
         .resource-batch__sidebar-card .ant-card-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-        .resource-batch__results-card { flex: 1; min-height: 0; }
-        .resource-batch__results-card .ant-card-body { flex: 1; }
+        .resource-batch__results-card { flex: 1 1 0; min-height: 0; overflow: hidden; }
+        .resource-batch__results-card .ant-card-head { flex: 0 0 auto; }
+        .resource-batch__results-card .ant-card-body { flex: 1 1 0; min-height: 0; overflow: hidden; padding: 10px 12px 12px; }
+        .resource-batch__results-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .resource-batch__results-title { font-weight: 700; color: var(--batch-text); letter-spacing: -0.01em; }
         .resource-batch__engine-card .ant-card-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
         .resource-batch__engine-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
         .resource-batch__engine-head h4 { margin: 2px 0 0; color: var(--batch-text); font-size: 15px; line-height: 1.2; }
@@ -1620,19 +1658,28 @@ export default function ResourceBatchVideoModal({
         .resource-batch__storage-row { display: flex; gap: 12px; align-items: flex-end; }
         .resource-batch__empty-block, .resource-batch__empty-list { min-height: 240px; display: flex; align-items: center; justify-content: center; }
         .resource-batch__sidebar-card .resource-batch__empty-block { min-height: 100%; }
-        .resource-batch__results { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
-        .resource-batch__summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        .resource-batch__summary-card { padding: 10px; border-radius: 13px; background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(243,248,255,0.92) 100%); border: 1px solid rgba(37, 99, 235, 0.12); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-        .resource-batch__summary-card span { color: rgba(51, 65, 85, 0.72); font-size: 11px; }
-        .resource-batch__summary-card strong { color: var(--batch-text); font-size: 18px; line-height: 1; }
-        .resource-batch__result-list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
-        .resource-batch__result-card { border-radius: 14px; border: 1px solid rgba(37, 99, 235, 0.1); overflow: hidden; }
-        .resource-batch__result-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
-        .resource-batch__status-row, .resource-batch__error-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
-        .resource-batch__status-row { color: #15803d; }
+        .resource-batch__results { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+        .resource-batch__summary { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .resource-batch__summary--inline { width: auto; }
+        .resource-batch__summary-metric { font-family: "Poppins", "Segoe UI", sans-serif; font-size: 18px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+        .resource-batch__summary-metric--success { color: #16a34a; }
+        .resource-batch__summary-metric--error { color: #e11d48; }
+        .resource-batch__result-list { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; height: 100%; overflow: auto; padding-right: 2px; padding-bottom: 2px; }
+        .resource-batch__result-card { border-radius: 14px; border: 1px solid rgba(37, 99, 235, 0.1); overflow: hidden; display: flex; flex-direction: column; flex: 0 0 248px; height: 248px; }
+        .resource-batch__result-card .ant-card-head { flex: 0 0 auto; }
+        .resource-batch__result-card .ant-card-body { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+        .resource-batch__result-card--error .ant-card-body { align-items: center; }
+        .resource-batch__result-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+        .resource-batch__result-title-main { min-width: 0; display: flex; align-items: center; gap: 8px; }
+        .resource-batch__result-title-text { font-weight: 700; color: var(--batch-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .resource-batch__result-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: rgba(37, 99, 235, 0.08); color: var(--batch-primary); font-size: 12px; font-weight: 700; flex-shrink: 0; }
+        .resource-batch__result-success { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+        .resource-batch__status-row, .resource-batch__error-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .resource-batch__status-row { color: #15803d; flex: 0 0 auto; }
         .resource-batch__error-row { color: #dc2626; }
+        .resource-batch__asset-shell { flex: 1; min-height: 0; border-radius: 13px; border: 1px solid rgba(37, 99, 235, 0.12); background: rgba(243, 248, 255, 0.72); padding: 8px; overflow: auto; }
         .resource-batch__asset-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
-        .resource-batch__asset-card { border-radius: 13px; border: 1px solid rgba(37, 99, 235, 0.1); background: rgba(243, 248, 255, 0.86); overflow: hidden; }
+        .resource-batch__asset-card { border-radius: 13px; border: 1px solid rgba(37, 99, 235, 0.1); background: rgba(255, 255, 255, 0.94); overflow: hidden; padding: 0; cursor: pointer; text-align: left; }
         .resource-batch__asset-preview { height: 72px; background: linear-gradient(135deg, #0f172a 0%, #2563eb 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; }
         .resource-batch__asset-info { padding: 9px; display: flex; flex-direction: column; gap: 6px; }
         .resource-batch__asset-metrics { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1645,20 +1692,32 @@ export default function ResourceBatchVideoModal({
         .resource-batch__workspace::-webkit-scrollbar,
         .resource-batch__sidebar::-webkit-scrollbar,
         .resource-batch__resource-grid::-webkit-scrollbar,
-        .resource-batch__result-list::-webkit-scrollbar { width: 10px; height: 10px; }
+        .resource-batch__result-list::-webkit-scrollbar,
+        .resource-batch__asset-shell::-webkit-scrollbar { width: 10px; height: 10px; }
         .resource-batch__workspace::-webkit-scrollbar-thumb,
         .resource-batch__sidebar::-webkit-scrollbar-thumb,
         .resource-batch__resource-grid::-webkit-scrollbar-thumb,
-        .resource-batch__result-list::-webkit-scrollbar-thumb { background: rgba(37, 99, 235, 0.28); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+        .resource-batch__result-list::-webkit-scrollbar-thumb,
+        .resource-batch__asset-shell::-webkit-scrollbar-thumb { background: rgba(37, 99, 235, 0.28); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
         .resource-batch__workspace::-webkit-scrollbar-track,
         .resource-batch__sidebar::-webkit-scrollbar-track,
         .resource-batch__resource-grid::-webkit-scrollbar-track,
-        .resource-batch__result-list::-webkit-scrollbar-track { background: rgba(37, 99, 235, 0.06); border-radius: 999px; }
+        .resource-batch__result-list::-webkit-scrollbar-track,
+        .resource-batch__asset-shell::-webkit-scrollbar-track { background: rgba(37, 99, 235, 0.06); border-radius: 999px; }
         @media (prefers-reduced-motion: reduce) { .resource-batch__operation-item, .resource-batch .ant-btn-primary { transition: none; } }
         @media (max-width: 1320px) { .resource-batch__workbench { grid-template-columns: minmax(0, 1fr) 284px; } .resource-batch__panel-grid { grid-template-columns: minmax(220px, 0.82fr) minmax(0, 1.18fr); } }
-        @media (max-width: 1180px) { .resource-batch { grid-template-columns: 1fr; } .resource-batch__sidebar { border-right: 0; border-bottom: 1px solid var(--batch-border); } .resource-batch__workbench, .resource-batch__panel-grid, .resource-batch__summary, .resource-batch__engine-summary { grid-template-columns: 1fr; } .resource-batch__result-sidebar { position: static; max-height: none; height: auto; } }
-        @media (max-width: 840px) { .resource-batch__fields--grid2, .resource-batch__fields--grid3, .resource-batch__fields--grid4, .resource-batch__storage-row { grid-template-columns: 1fr; display: grid; } .resource-batch__workspace { padding: 14px; } .resource-batch__sidebar { padding: 12px; } .resource-batch__result-toolbar { gap: 6px; } }
+        @media (max-width: 1180px) { .resource-batch { grid-template-columns: 1fr; } .resource-batch__sidebar { border-right: 0; border-bottom: 1px solid var(--batch-border); } .resource-batch__workbench, .resource-batch__panel-grid, .resource-batch__engine-summary { grid-template-columns: 1fr; } .resource-batch__result-sidebar { position: static; top: auto; min-height: 360px; height: clamp(360px, 56vh, 620px); max-height: clamp(360px, 56vh, 620px); overflow: hidden; } .resource-batch__results-head { align-items: center; flex-direction: row; flex-wrap: wrap; } .resource-batch__summary--inline { width: auto; } }
+        @media (max-width: 840px) { .resource-batch__fields--grid2, .resource-batch__fields--grid3, .resource-batch__fields--grid4, .resource-batch__storage-row { grid-template-columns: 1fr; display: grid; } .resource-batch__workspace { padding: 14px; } .resource-batch__sidebar { padding: 12px; } .resource-batch__result-toolbar { gap: 6px; } .resource-batch__result-sidebar { min-height: 320px; height: clamp(320px, 52vh, 540px); max-height: clamp(320px, 52vh, 540px); } }
       `}</style>
+
+      <PreviewModal
+        open={Boolean(previewAsset)}
+        onCancel={() => setPreviewAsset(null)}
+        title={previewAsset?.title}
+        type={previewAsset?.type}
+        src={previewAsset?.src}
+        cover={previewAsset?.cover}
+      />
     </Modal>
   )
 }
