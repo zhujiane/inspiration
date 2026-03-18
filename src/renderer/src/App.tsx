@@ -1,5 +1,5 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntdApp, ConfigProvider, Form, Input, Modal, Select, message } from 'antd'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { Bookmark } from '../../shared/db/bookmark-schema'
 import LeftSidebar from './components/LeftSidebar'
@@ -8,8 +8,11 @@ import MainContent from './components/MainContent'
 import type { MainContentRef } from './components/MainContent'
 import StatusBar from './components/StatusBar'
 import TitleBar from './components/TitleBar'
+import BookmarkModal from './features/browser/title-bar/BookmarkModal'
+import type { TitleBarBookmark } from './features/browser/title-bar/types'
 import type { Tab } from './features/browser/types'
-import { formatUrlInput, getTabPartition, isWebviewTab } from './features/browser/utils'
+import { useTitleBarController } from './features/browser/title-bar/useTitleBarController'
+import { getCanonicalUrl, getTabPartition } from './features/browser/utils'
 import SnifferWorkspace from './features/sniffer/SnifferWorkspace'
 import { trpc } from './lib/trpc'
 
@@ -29,17 +32,6 @@ const antdTheme = {
   }
 }
 
-function getCanonicalUrl(value: string): string {
-  if (!value || !value.includes('.')) return value
-
-  try {
-    const url = new URL(value.startsWith('http') ? value : `https://${value}`)
-    return url.origin + url.pathname
-  } catch {
-    return value
-  }
-}
-
 function App(): React.JSX.Element {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState('tab-1')
@@ -48,15 +40,13 @@ function App(): React.JSX.Element {
   const [canGoForward, setCanGoForward] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [activeNavId, setActiveNavId] = useState<string | number>('')
-  const [allBookmarks, setAllBookmarks] = useState<any[]>([])
-  const [bookmarkGroups, setBookmarkGroups] = useState<any[]>([])
-  const [isBookmarkModalVisible, setIsBookmarkModalVisible] = useState(false)
+  const [allBookmarks, setAllBookmarks] = useState<TitleBarBookmark[]>([])
+  const [bookmarkGroups, setBookmarkGroups] = useState<TitleBarBookmark[]>([])
   const [resourceCount, setResourceCount] = useState(0)
   const [snifferActive, setSnifferActive] = useState(false)
 
   const sidebarRef = useRef<LeftSidebarRef>(null)
   const mainContentRef = useRef<MainContentRef>(null)
-  const [bookmarkForm] = Form.useForm()
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId), [activeTabId, tabs])
 
@@ -64,7 +54,7 @@ function App(): React.JSX.Element {
 
   const fetchBookmarkGroups = useCallback(async () => {
     try {
-      const all = (await trpc.bookmark.list.query()) as any[]
+      const all = (await trpc.bookmark.list.query()) as TitleBarBookmark[]
       setAllBookmarks(all)
       setBookmarkGroups(all.filter((item) => item.type === 1 && item.name !== '应用'))
     } catch (error) {
@@ -76,13 +66,22 @@ function App(): React.JSX.Element {
     void fetchBookmarkGroups()
   }, [fetchBookmarkGroups])
 
-  const currentBookmark = useMemo(() => {
-    if (!url || !url.includes('.')) return null
-    const canonicalUrl = getCanonicalUrl(url)
-    return allBookmarks.find((item) => item.type === 2 && item.url && getCanonicalUrl(item.url) === canonicalUrl)
-  }, [allBookmarks, url])
-
-  const isFavorited = !!currentBookmark
+  const { titleBarProps, bookmarkModalProps } = useTitleBarController({
+    tabs,
+    activeTab,
+    activeTabId,
+    url,
+    canGoBack,
+    canGoForward,
+    allBookmarks,
+    bookmarkGroups,
+    setTabs,
+    setActiveTabId,
+    setUrl,
+    fetchBookmarkGroups,
+    mainContentRef,
+    sidebarRef
+  })
 
   const handleWebviewEvent = useCallback(
     (tabId: string, event: any) => {
@@ -143,56 +142,6 @@ function App(): React.JSX.Element {
     },
     [activeTab, activeTabId, allBookmarks, fetchBookmarkGroups]
   )
-
-  const handleTabSelect = useCallback(
-    (id: string) => {
-      setActiveTabId(id)
-      const tab = tabs.find((item) => item.id === id)
-      setUrl(tab?.url || '')
-    },
-    [tabs]
-  )
-
-  const handleTabClose = useCallback(
-    (id: string) => {
-      setTabs((prev) => {
-        const nextTabs = prev.filter((tab) => tab.id !== id)
-        if (nextTabs.length === 0) {
-          setActiveTabId('')
-          setUrl('')
-          return nextTabs
-        }
-
-        if (id === activeTabId) {
-          setActiveTabId(nextTabs[0].id)
-          setUrl(nextTabs[0].url || '')
-        }
-
-        return nextTabs
-      })
-    },
-    [activeTabId]
-  )
-
-  const handleCloseOtherTabs = useCallback(() => {
-    const currentTab = tabs.find((tab) => tab.id === activeTabId)
-    if (!currentTab) {
-      setTabs([])
-      setActiveTabId('')
-      setUrl('')
-      return
-    }
-
-    if (tabs.length <= 1) {
-      setUrl(currentTab.url || '')
-      return
-    }
-
-    setUrl(currentTab.url || '')
-    startTransition(() => {
-      setTabs([currentTab])
-    })
-  }, [activeTabId, tabs])
 
   const handleNavSelect = useCallback((item: Bookmark) => {
     setActiveNavId(item.id)
@@ -257,67 +206,6 @@ function App(): React.JSX.Element {
     })
   }, [])
 
-  const handleToggleFavorite = useCallback(async () => {
-    if (isFavorited && currentBookmark) {
-      try {
-        await trpc.bookmark.delete.mutate({ id: currentBookmark.id })
-        message.success('已取消收藏')
-        void fetchBookmarkGroups()
-        sidebarRef.current?.refresh()
-      } catch (error) {
-        console.error('Failed to remove bookmark:', error)
-        message.error('取消收藏失败')
-      }
-      return
-    }
-
-    bookmarkForm.setFieldsValue({
-      name: activeTab?.title || '',
-      url,
-      parentId: bookmarkGroups[0]?.id || 0,
-      userDataPath: activeTab?.userDataPath || 'default'
-    })
-    setIsBookmarkModalVisible(true)
-  }, [activeTab, bookmarkForm, bookmarkGroups, currentBookmark, fetchBookmarkGroups, isFavorited, url])
-
-  const handleBookmarkSubmit = useCallback(async () => {
-    try {
-      const values = await bookmarkForm.validateFields()
-      await trpc.bookmark.create.mutate({ ...values, type: 2 })
-      message.success('已添加到收藏夹')
-      setIsBookmarkModalVisible(false)
-      void fetchBookmarkGroups()
-      sidebarRef.current?.refresh()
-    } catch (error) {
-      console.error('Failed to create bookmark:', error)
-    }
-  }, [bookmarkForm, fetchBookmarkGroups])
-
-  const handleUrlSubmit = useCallback(
-    (input: string) => {
-      const formattedUrl = formatUrlInput(input.trim())
-      if (!formattedUrl) return
-
-      setUrl(formattedUrl)
-
-      if (!activeTab || !isWebviewTab(activeTab)) {
-        const nextTab: Tab = {
-          id: `tab-${Date.now()}`,
-          title: '新标签页',
-          url: formattedUrl,
-          userDataPath: 'default',
-          type: 'webview'
-        }
-        setTabs((prev) => [...prev, nextTab])
-        setActiveTabId(nextTab.id)
-        return
-      }
-
-      mainContentRef.current?.loadURL(formattedUrl)
-    },
-    [activeTab]
-  )
-
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntdApp style={{ height: '100%' }}>
@@ -332,32 +220,7 @@ function App(): React.JSX.Element {
           />
 
           <div className="app-body">
-            <TitleBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              url={url}
-              isFavorited={isFavorited}
-              canGoBack={canGoBack}
-              canGoForward={canGoForward}
-              onBack={() => mainContentRef.current?.goBack()}
-              onForward={() => mainContentRef.current?.goForward()}
-              onReload={() => mainContentRef.current?.reload()}
-              onUrlChange={setUrl}
-              onUrlSubmit={handleUrlSubmit}
-              onToggleFavorite={handleToggleFavorite}
-              onTabSelect={handleTabSelect}
-              onTabClose={handleTabClose}
-              onCloseAll={() => {
-                setTabs([])
-                setActiveTabId('')
-                setUrl('')
-              }}
-              onCloseOthers={handleCloseOtherTabs}
-              onMenuClick={(key) => console.log('Menu:', key)}
-              onMinimize={() => trpc.system.minimize.mutate()}
-              onMaximize={() => trpc.system.maximize.mutate()}
-              onClose={() => trpc.system.close.mutate()}
-            />
+            <TitleBar {...titleBarProps} />
 
             <div className="app-content">
               <MainContent
@@ -381,40 +244,7 @@ function App(): React.JSX.Element {
           </div>
         </div>
 
-        <Modal
-          title="添加收藏"
-          open={isBookmarkModalVisible}
-          onOk={() => void handleBookmarkSubmit()}
-          onCancel={() => setIsBookmarkModalVisible(false)}
-          okText="添加"
-          cancelText="取消"
-          destroyOnHidden
-        >
-          <Form form={bookmarkForm} layout="vertical">
-            <Form.Item name="name" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="url" label="网址" rules={[{ required: true, message: '请输入网址' }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="parentId" label="收藏分组" rules={[{ required: true, message: '请选择分组' }]}>
-              <Select placeholder="请选择分组">
-                {bookmarkGroups.map((group) => (
-                  <Select.Option key={group.id} value={group.id}>
-                    {group.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item
-              name="userDataPath"
-              label="持久化目录 (Partition)"
-              tooltip="每个标签页可以拥有独立的持久化数据，留空则使用默认配置"
-            >
-              <Input placeholder="输入持久化标识，例如: user1" />
-            </Form.Item>
-          </Form>
-        </Modal>
+        <BookmarkModal {...bookmarkModalProps} />
       </AntdApp>
     </ConfigProvider>
   )

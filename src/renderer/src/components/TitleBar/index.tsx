@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons'
 import type { Tab } from '../../features/browser/types'
 
-interface TitleBarProps {
+export interface TitleBarProps {
   tabs: Tab[]
   activeTabId: string
   url: string

@@ -11,6 +11,17 @@ export function getTabPartition(tab?: Pick<Tab, 'userDataPath'> | null): string 
   return tab?.userDataPath ? `persist:${tab.userDataPath}` : 'persist:default'
 }
 
+export function getCanonicalUrl(value: string): string {
+  if (!value || !value.includes('.')) return value
+
+  try {
+    const nextUrl = new URL(value.startsWith('http') ? value : `https://${value}`)
+    return nextUrl.origin + nextUrl.pathname
+  } catch {
+    return value
+  }
+}
+
 export function formatUrlInput(input: string): string {
   if (!input) return ''
 

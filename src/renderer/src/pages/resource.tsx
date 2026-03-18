@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Table,
   Button,
@@ -30,9 +30,11 @@ import {
   EllipsisOutlined
 } from '@ant-design/icons'
 import { trpc } from '../lib/trpc'
+import { buildPreviewProxyUrl } from '../lib/media'
 import type { Resource } from '@shared/db/resource-schema'
 import type { Tag as ResourceTag } from '@shared/db/tag-schema'
 import { formatDuration, formatSize } from '@shared/utils/format'
+import SmartVideo from '../components/Media/SmartVideo'
 import PreviewModal from '../components/PreviewModal'
 
 const { Search } = Input
@@ -75,6 +77,24 @@ type LocalMediaMeta = {
 
 const getLocalMediaMeta = async (filePath: string): Promise<LocalMediaMeta> => {
   return (await trpc.system.getLocalMediaMeta.mutate({ filePath })) as LocalMediaMeta
+}
+
+const parseResourceMeta = (metadata?: string | null): LocalMediaMeta | null => {
+  if (!metadata) return null
+
+  try {
+    return JSON.parse(metadata) as LocalMediaMeta
+  } catch (error) {
+    console.error('Failed to parse resource metadata:', error)
+    return null
+  }
+}
+
+const getTypeTagColor = (type?: string) => {
+  if (type === '视频') return 'blue'
+  if (type === '图片') return 'green'
+  if (type === '音频') return 'purple'
+  return 'default'
 }
 
 function ResourceKeywordSearch({
@@ -124,10 +144,25 @@ export default function ResourcePage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBatchTagModalOpen, setIsBatchTagModalOpen] = useState(false)
   const [batchTagSubmitting, setBatchTagSubmitting] = useState(false)
-  const [editingResource, setEditingResource] = useState<Partial<Resource> | null>(null)
+  const [editingResource, setEditingResource] = useState<ResourceRecord | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [form] = Form.useForm()
   const [batchTagForm] = Form.useForm()
+  const watchedName = Form.useWatch('name', form)
+  const watchedType = Form.useWatch('type', form)
+  const watchedPlatform = Form.useWatch('platform', form)
+  const watchedTagNames = Form.useWatch('tagNames', form)
+  const watchedDescription = Form.useWatch('description', form)
+  const editingMeta = useMemo(() => parseResourceMeta(editingResource?.metadata), [editingResource?.metadata])
+  const editingPreviewSrc = editingResource?.localPath || editingResource?.url || undefined
+  const editingImageSrc = buildPreviewProxyUrl(editingResource?.cover || editingPreviewSrc)
+  const editingAudioSrc = buildPreviewProxyUrl(editingPreviewSrc)
+  const currentEditName = watchedName || editingResource?.name || '未命名素材'
+  const currentEditType = watchedType || editingResource?.type || '其他'
+  const currentEditPlatform = watchedPlatform || editingResource?.platform || '未填写平台来源'
+  const currentEditTagNames =
+    (watchedTagNames as string[] | undefined) ?? editingResource?.tags?.map((tag) => tag.name) ?? []
+  const currentEditDescription = watchedDescription || editingResource?.description || '暂无备注说明'
 
   // --- Fetch Data ---
   const fetchData = async () => {
@@ -432,6 +467,51 @@ export default function ResourcePage() {
     }))
   }
 
+  const renderEditingPreview = () => {
+    if (!editingResource) {
+      return <div className="resource-edit-modal__empty">请选择要编辑的素材</div>
+    }
+
+    if (editingResource.type === '视频' && editingPreviewSrc) {
+      return (
+        <SmartVideo
+          src={editingPreviewSrc}
+          controls
+          playsInline
+          preload="metadata"
+          poster={editingResource.cover || undefined}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#111827' }}
+        />
+      )
+    }
+
+    if (editingResource.type === '图片' && editingImageSrc) {
+      return <img src={editingImageSrc} alt={currentEditName} className="resource-edit-modal__image" />
+    }
+
+    if (editingResource.type === '音频' && editingAudioSrc) {
+      return (
+        <div className="resource-edit-modal__audio">
+          <div className="resource-edit-modal__audio-icon">
+            <AudioOutlined />
+          </div>
+          <div className="resource-edit-modal__audio-name">{currentEditName}</div>
+          <audio src={editingAudioSrc} controls preload="metadata" style={{ width: '100%' }} />
+        </div>
+      )
+    }
+
+    if (editingImageSrc) {
+      return <img src={editingImageSrc} alt={currentEditName} className="resource-edit-modal__image" />
+    }
+
+    return (
+      <div className="resource-edit-modal__empty">
+        {editingPreviewSrc ? '当前素材暂不支持内嵌预览' : '该素材暂无可预览内容'}
+      </div>
+    )
+  }
+
   // --- Table Columns ---
   const columns = [
     {
@@ -494,18 +574,7 @@ export default function ResourcePage() {
                 fontSize: 14
               }}
             >
-              <Tag
-                color={
-                  res.type === '视频'
-                    ? 'blue'
-                    : res.type === '图片'
-                      ? 'green'
-                      : res.type === '音频'
-                        ? 'purple'
-                        : 'default'
-                }
-                style={{ marginRight: 0, flexShrink: 0 }}
-              >
+              <Tag color={getTypeTagColor(res.type)} style={{ marginRight: 0, flexShrink: 0 }}>
                 {res.type}
               </Tag>
               <span
@@ -552,7 +621,7 @@ export default function ResourcePage() {
       key: 'properties',
       width: 150,
       render: (res: Resource) => {
-        const meta = res.metadata ? JSON.parse(res.metadata) : null
+        const meta = parseResourceMeta(res.metadata)
         if (!meta) return '-'
         return (
           <Space orientation="vertical" size={0} style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
@@ -712,32 +781,117 @@ export default function ResourcePage() {
         okText="保存"
         cancelText="取消"
         centered
-        width={500}
+        width={1080}
+        destroyOnHidden
+        styles={{ body: { padding: 0, maxHeight: '78vh', overflow: 'hidden' } }}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="素材名称" rules={[{ required: true, message: '请输入素材名称' }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="type" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
-            <Select
-              options={[
-                { value: '视频', label: '视频' },
-                { value: '图片', label: '图片' },
-                { value: '音频', label: '音频' },
-                { value: '其他', label: '其他' }
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="platform" label="平台来源">
-            <Input placeholder="例如：本地, 抖音, YouTube..." />
-          </Form.Item>
-          <Form.Item name="tagNames" label="标签">
-            <Select mode="tags" placeholder="输入后回车创建标签" options={tagOptions} tokenSeparators={[',', '，']} />
-          </Form.Item>
-          <Form.Item name="description" label="备注说明">
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} />
-          </Form.Item>
-        </Form>
+        <div className="resource-edit-modal">
+          <div className="resource-edit-modal__preview-pane">
+            <div className="resource-edit-modal__header">
+              <div style={{ minWidth: 0 }}>
+                <div className="resource-edit-modal__title-row">
+                  <h3>{currentEditName}</h3>
+                  <Tag color={getTypeTagColor(currentEditType)} style={{ marginRight: 0 }}>
+                    {currentEditType}
+                  </Tag>
+                </div>
+                <div className="resource-edit-modal__subline">
+                  <span>上传时间：{formatDateTime(editingResource?.createdAt)}</span>
+                  <span>平台：{currentEditPlatform}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="resource-edit-modal__viewer">{renderEditingPreview()}</div>
+
+            <div className="resource-edit-modal__section">
+              <div className="resource-edit-modal__section-title">素材标签</div>
+              <div className="resource-edit-modal__tags">
+                {currentEditTagNames.length > 0 ? (
+                  currentEditTagNames.map((tagName, index) => (
+                    <Tag
+                      key={`${tagName}-${index}`}
+                      color={TAG_COLORS[index % TAG_COLORS.length]}
+                      style={{ marginRight: 0 }}
+                    >
+                      {tagName}
+                    </Tag>
+                  ))
+                ) : (
+                  <span className="resource-edit-modal__placeholder">暂未设置标签</span>
+                )}
+              </div>
+            </div>
+
+            <div className="resource-edit-modal__stats">
+              <div className="resource-edit-modal__stat-card">
+                <span className="resource-edit-modal__stat-label">时长</span>
+                <strong>{editingMeta?.duration ? formatDuration(editingMeta.duration) : '-'}</strong>
+              </div>
+              <div className="resource-edit-modal__stat-card">
+                <span className="resource-edit-modal__stat-label">分辨率</span>
+                <strong>
+                  {editingMeta?.width && editingMeta?.height ? `${editingMeta.width} x ${editingMeta.height}` : '-'}
+                </strong>
+              </div>
+              <div className="resource-edit-modal__stat-card">
+                <span className="resource-edit-modal__stat-label">大小</span>
+                <strong>{editingMeta?.size ? formatSize(editingMeta.size) : '-'}</strong>
+              </div>
+            </div>
+
+            <div className="resource-edit-modal__section">
+              <div className="resource-edit-modal__section-title">素材说明</div>
+              <div className="resource-edit-modal__description">{currentEditDescription}</div>
+            </div>
+          </div>
+
+          <div className="resource-edit-modal__form-pane">
+            <div className="resource-edit-modal__form-title">编辑信息</div>
+            <Form form={form} layout="vertical" className="resource-edit-modal__form">
+              <div className="resource-edit-modal__form-block">
+                <div className="resource-edit-modal__block-title">基础信息</div>
+                <Form.Item name="name" label="素材名称" rules={[{ required: true, message: '请输入素材名称' }]}>
+                  <Input size="large" />
+                </Form.Item>
+                <Form.Item name="type" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
+                  <Select
+                    size="large"
+                    options={[
+                      { value: '视频', label: '视频' },
+                      { value: '图片', label: '图片' },
+                      { value: '音频', label: '音频' },
+                      { value: '其他', label: '其他' }
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item name="platform" label="平台来源">
+                  <Input size="large" placeholder="例如：本地、抖音、YouTube..." />
+                </Form.Item>
+              </div>
+
+              <div className="resource-edit-modal__form-block">
+                <div className="resource-edit-modal__block-title">标签设置</div>
+                <Form.Item name="tagNames" label="标签">
+                  <Select
+                    mode="tags"
+                    size="large"
+                    placeholder="输入后回车创建标签"
+                    options={tagOptions}
+                    tokenSeparators={[',', '，']}
+                  />
+                </Form.Item>
+              </div>
+
+              <div className="resource-edit-modal__form-block">
+                <div className="resource-edit-modal__block-title">备注说明</div>
+                <Form.Item name="description" label="备注说明" style={{ marginBottom: 0 }}>
+                  <Input.TextArea autoSize={{ minRows: 6, maxRows: 10 }} placeholder="补充素材背景、用途或使用说明" />
+                </Form.Item>
+              </div>
+            </Form>
+          </div>
+        </div>
       </Modal>
 
       <style>{`
@@ -762,6 +916,210 @@ export default function ResourcePage() {
         }
         .resource-page .ant-card {
           background: var(--color-bg-container);
+        }
+        .resource-edit-modal {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) 360px;
+          min-height: 680px;
+          background: linear-gradient(180deg, #ffffff 0%, #fafcff 100%);
+        }
+        .resource-edit-modal__preview-pane {
+          padding: 24px;
+          border-right: 1px solid rgba(5, 5, 5, 0.08);
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          min-width: 0;
+          overflow: auto;
+        }
+        .resource-edit-modal__form-pane {
+          padding: 24px 20px;
+          background: linear-gradient(180deg, #fcfdff 0%, #f5f8ff 100%);
+          overflow: auto;
+        }
+        .resource-edit-modal__header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+        }
+        .resource-edit-modal__title-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 0;
+          margin-bottom: 8px;
+        }
+        .resource-edit-modal__title-row h3 {
+          margin: 0;
+          font-size: 24px;
+          line-height: 1.25;
+          color: #1f2937;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .resource-edit-modal__subline {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+          color: #6b7280;
+          font-size: 13px;
+        }
+        .resource-edit-modal__viewer {
+          height: 380px;
+          border-radius: 18px;
+          overflow: hidden;
+          background:
+            radial-gradient(circle at top, rgba(59, 130, 246, 0.2), transparent 42%),
+            linear-gradient(135deg, #101828 0%, #1f2937 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+        .resource-edit-modal__image {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          display: block;
+        }
+        .resource-edit-modal__audio,
+        .resource-edit-modal__empty {
+          width: 100%;
+          max-width: 420px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+          color: #f3f4f6;
+          text-align: center;
+        }
+        .resource-edit-modal__audio-icon {
+          width: 88px;
+          height: 88px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 36px;
+          background: rgba(255, 255, 255, 0.12);
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+        }
+        .resource-edit-modal__audio-name {
+          font-size: 18px;
+          font-weight: 600;
+        }
+        .resource-edit-modal__section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .resource-edit-modal__section-title,
+        .resource-edit-modal__form-title,
+        .resource-edit-modal__block-title {
+          font-weight: 600;
+          color: #111827;
+        }
+        .resource-edit-modal__tags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .resource-edit-modal__placeholder {
+          color: #9ca3af;
+          font-size: 13px;
+        }
+        .resource-edit-modal__stats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .resource-edit-modal__stat-card {
+          padding: 14px 16px;
+          border-radius: 14px;
+          background: #f7faff;
+          border: 1px solid rgba(22, 119, 255, 0.12);
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+        .resource-edit-modal__stat-card strong {
+          color: #111827;
+          font-size: 15px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .resource-edit-modal__stat-label {
+          color: #6b7280;
+          font-size: 12px;
+        }
+        .resource-edit-modal__description {
+          padding: 14px 16px;
+          border-radius: 14px;
+          background: #f8fafc;
+          color: #4b5563;
+          line-height: 1.7;
+          white-space: pre-wrap;
+        }
+        .resource-edit-modal__paths {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .resource-edit-modal__path-row {
+          display: grid;
+          grid-template-columns: 72px minmax(0, 1fr);
+          gap: 12px;
+          align-items: start;
+          font-size: 13px;
+          color: #6b7280;
+        }
+        .resource-edit-modal__path-row code {
+          padding: 10px 12px;
+          border-radius: 12px;
+          background: #f8fafc;
+          color: #334155;
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
+        .resource-edit-modal__form-title {
+          font-size: 18px;
+          margin-bottom: 16px;
+        }
+        .resource-edit-modal__form {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .resource-edit-modal__form-block {
+          padding: 16px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.86);
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+        }
+        .resource-edit-modal__block-title {
+          margin-bottom: 14px;
+          font-size: 15px;
+        }
+        .resource-edit-modal__form-block .ant-form-item:last-child {
+          margin-bottom: 0;
+        }
+        @media (max-width: 960px) {
+          .resource-edit-modal {
+            grid-template-columns: 1fr;
+            min-height: auto;
+          }
+          .resource-edit-modal__preview-pane {
+            border-right: 0;
+            border-bottom: 1px solid rgba(5, 5, 5, 0.08);
+          }
+          .resource-edit-modal__stats {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </div>
