@@ -117,6 +117,26 @@ export const systemRouter = trpc.router({
     throw new Error('文件不存在')
   }),
 
+  deleteLocalFile: publicProcedure
+    .input(
+      z.object({
+        path: z.string().trim().min(1)
+      })
+    )
+    .mutation(async ({ input }) => {
+      if (!fs.existsSync(input.path)) {
+        return { success: true, existed: false }
+      }
+
+      const stat = fs.statSync(input.path)
+      if (!stat.isFile()) {
+        throw new Error('目标不是文件')
+      }
+
+      await fs.promises.unlink(input.path)
+      return { success: true, existed: true }
+    }),
+
   getLocalMediaMeta: publicProcedure.input(z.object({ filePath: z.string() })).mutation(async ({ input }) => {
     if (!fs.existsSync(input.filePath)) {
       throw new Error('文件不存在')

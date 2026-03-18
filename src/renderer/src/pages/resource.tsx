@@ -12,7 +12,9 @@ import {
   Tooltip,
   Empty,
   Card,
-  Badge
+  Badge,
+  Checkbox,
+  Progress
 } from 'antd'
 import type { TablePaginationConfig } from 'antd/es/table'
 import {
@@ -46,6 +48,27 @@ type ResourceRecord = Resource & {
   createdAt: string | Date
   updatedAt: string | Date
   tags?: ResourceTag[]
+}
+
+type DeleteFailureItem = {
+  id: number
+  name: string
+  path?: string | null
+  reason: string
+}
+
+type DeleteResourcesResult = {
+  deletedCount: number
+  localFileFailures: DeleteFailureItem[]
+  dataDeleteFailures: DeleteFailureItem[]
+}
+
+type LocalImportProgress = {
+  total: number
+  completed: number
+  success: number
+  failed: number
+  currentFileName: string
 }
 
 /* ============================================================
@@ -133,6 +156,7 @@ function ResourceKeywordSearch({
 export default function ResourcePage() {
   const { message, modal } = AntdApp.useApp()
   const [loading, setLoading] = useState(false)
+  const [localImportProgress, setLocalImportProgress] = useState<LocalImportProgress | null>(null)
   const [data, setData] = useState<ResourceRecord[]>([])
   const [tagOptions, setTagOptions] = useState<{ label: string; value: string }[]>([])
   const [keyword, setKeyword] = useState('')
@@ -259,11 +283,31 @@ export default function ResourcePage() {
       })) as string[]
 
       if (paths && paths.length > 0) {
-        setLoading(true)
-        for (const filePath of paths) {
+        let successCount = 0
+        let failedCount = 0
+
+        setLocalImportProgress({
+          total: paths.length,
+          completed: 0,
+          success: 0,
+          failed: 0,
+          currentFileName: paths[0].split(/[\\/]/).pop() || '未知文件'
+        })
+
+        for (const [index, filePath] of paths.entries()) {
+          const fileName = filePath.split(/[\\/]/).pop() || '未知文件'
+
+          setLocalImportProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  currentFileName: fileName
+                }
+              : prev
+          )
+
           try {
             const meta = await getLocalMediaMeta(filePath)
-            const fileName = filePath.split(/[\\/]/).pop() || '未知文件'
             const extension = fileName.split('.').pop()?.toLowerCase() || ''
 
             let type = '其他'
@@ -286,18 +330,42 @@ export default function ResourcePage() {
 
             // 创建素材记录
             await trpc.resource.create.mutate(resource)
+            successCount += 1
           } catch (e) {
+            failedCount += 1
             console.error(`Failed to add ${filePath}:`, e)
             message.error(`添加 ${filePath} 失败`)
+          } finally {
+            const completed = index + 1
+            setLocalImportProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    completed,
+                    success: successCount,
+                    failed: failedCount,
+                    currentFileName:
+                      completed < paths.length ? paths[completed].split(/[\\/]/).pop() || '未知文件' : fileName
+                  }
+                : prev
+            )
           }
         }
-        message.success(`成功添加 ${paths.length} 个素材`)
-        fetchData()
+
+        if (failedCount === 0) {
+          message.success(`成功添加 ${successCount} 个素材`)
+        } else if (successCount > 0) {
+          message.warning(`成功添加 ${successCount} 个素材，失败 ${failedCount} 个`)
+        } else {
+          message.error('素材添加失败')
+        }
+
+        await fetchData()
       }
     } catch (error) {
       console.error('Failed to add local materials:', error)
     } finally {
-      setLoading(false)
+      setLocalImportProgress(null)
     }
   }
 
@@ -311,48 +379,184 @@ export default function ResourcePage() {
   }
 
   const handleDelete = (id: number) => {
+    const resource = data.find((item) => item.id === id)
+    if (!resource) {
+      message.error('未找到要删除的素材')
+      return
+    }
+
+    confirmDeleteResources([resource])
+  }
+
+  const getResourcesByIds = async (ids: number[]) => {
+    const resourceMap = new Map(data.map((item) => [item.id, item]))
+    const missingIds = ids.filter((id) => !resourceMap.has(id))
+
+    if (missingIds.length > 0) {
+      const missingResources = await Promise.all(
+        missingIds.map((id) =>
+          trpc.resource.get.query({
+            id
+          })
+        )
+      )
+
+      missingResources.forEach((item) => {
+        resourceMap.set(item.id, item as unknown as ResourceRecord)
+      })
+    }
+
+    return ids.map((id) => resourceMap.get(id)).filter(Boolean) as ResourceRecord[]
+  }
+
+  const deleteResources = async (
+    resourcesToDelete: ResourceRecord[],
+    deleteLocalFiles: boolean
+  ): Promise<DeleteResourcesResult> => {
+    const result: DeleteResourcesResult = {
+      deletedCount: 0,
+      localFileFailures: [],
+      dataDeleteFailures: []
+    }
+
+    for (const resource of resourcesToDelete) {
+      try {
+        await trpc.resource.delete.mutate({ id: resource.id })
+        result.deletedCount += 1
+      } catch (error) {
+        result.dataDeleteFailures.push({
+          id: resource.id,
+          name: resource.name,
+          path: resource.localPath,
+          reason: error instanceof Error ? error.message : '删除数据失败'
+        })
+        continue
+      }
+
+      if (!deleteLocalFiles || !resource.localPath) {
+        continue
+      }
+
+      try {
+        await trpc.system.deleteLocalFile.mutate({ path: resource.localPath })
+      } catch (error) {
+        result.localFileFailures.push({
+          id: resource.id,
+          name: resource.name,
+          path: resource.localPath,
+          reason: error instanceof Error ? error.message : '删除本地文件失败'
+        })
+      }
+    }
+
+    return result
+  }
+
+  const showDeleteFailures = (title: string, items: DeleteFailureItem[]) => {
+    modal.warning({
+      title,
+      okText: '知道了',
+      width: 640,
+      content: (
+        <div style={{ maxHeight: 280, overflow: 'auto', marginTop: 12 }}>
+          {items.map((item) => (
+            <div
+              key={`${item.id}-${item.path || item.name}`}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 8,
+                background: 'var(--color-bg-layout)',
+                marginBottom: 8
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{item.name}</div>
+              {item.path ? (
+                <div style={{ fontSize: 12, color: 'var(--color-text-description)', wordBreak: 'break-all' }}>
+                  {item.path}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 12, color: '#ff4d4f', marginTop: 4 }}>{item.reason}</div>
+            </div>
+          ))}
+        </div>
+      )
+    })
+  }
+
+  const confirmDeleteResources = (resourcesToDelete: ResourceRecord[]) => {
+    const deleteOptions = { deleteLocalFiles: false }
+    const isBatchDelete = resourcesToDelete.length > 1
+
     modal.confirm({
-      title: '确定删除该素材吗？',
-      content: '此操作不可撤销',
+      title: isBatchDelete ? `确定删除选中的 ${resourcesToDelete.length} 个素材吗？` : '确定删除该素材吗？',
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>此操作不可撤销</div>
+          <Checkbox onChange={(e) => (deleteOptions.deleteLocalFiles = e.target.checked)}>同时删除本地文件</Checkbox>
+          <div style={{ fontSize: 12, color: 'var(--color-text-description)' }}>
+            文件不存在时会自动只删数据；本地文件删除失败时，仍会删除数据并提示失败文件。
+          </div>
+        </div>
+      ),
       okText: '确定',
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
-        try {
-          await trpc.resource.delete.mutate({ id })
-          message.success('删除成功')
-          setPagination((prev) => ({
-            ...prev,
-            current: prev.current > 1 && data.length === 1 ? prev.current - 1 : prev.current
-          }))
-          fetchData()
-        } catch (error) {
-          message.error('删除失败')
+        const result = await deleteResources(resourcesToDelete, deleteOptions.deleteLocalFiles)
+        const failedDataIds = new Set(result.dataDeleteFailures.map((item) => item.id))
+
+        if (isBatchDelete) {
+          setSelectedRowKeys((prev) => prev.filter((key) => failedDataIds.has(Number(key))))
         }
+
+        if (result.dataDeleteFailures.length === 0) {
+          if (result.localFileFailures.length === 0) {
+            message.success(isBatchDelete ? `成功删除 ${result.deletedCount} 个素材` : '删除成功')
+          } else {
+            message.warning(
+              `已删除 ${result.deletedCount} 条数据，但有 ${result.localFileFailures.length} 个本地文件删除失败`
+            )
+          }
+        } else if (result.deletedCount > 0) {
+          message.warning(
+            `已删除 ${result.deletedCount}/${resourcesToDelete.length} 条数据，失败 ${result.dataDeleteFailures.length} 条`
+          )
+        } else {
+          message.error(isBatchDelete ? '批量删除失败' : '删除失败')
+        }
+
+        if (result.localFileFailures.length > 0) {
+          showDeleteFailures('以下本地文件删除失败，数据已删除', result.localFileFailures)
+        }
+
+        if (result.dataDeleteFailures.length > 0) {
+          showDeleteFailures('以下素材数据删除失败', result.dataDeleteFailures)
+        }
+
+        setPagination((prev) => ({
+          ...prev,
+          current:
+            prev.current > 1 && result.deletedCount > 0 && result.deletedCount >= data.length ? prev.current - 1 : prev.current
+        }))
+        fetchData()
       }
     })
   }
 
-  const handleBatchDelete = () => {
+  const handleBatchDelete = async () => {
     if (selectedRowKeys.length === 0) return
-    modal.confirm({
-      title: `确定删除选中的 ${selectedRowKeys.length} 个素材吗？`,
-      okText: '确定',
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          for (const id of selectedRowKeys) {
-            await trpc.resource.delete.mutate({ id: id as number })
-          }
-          message.success('批量删除成功')
-          setSelectedRowKeys([])
-          setPagination((prev) => ({ ...prev, current: 1 }))
-          fetchData()
-        } catch (error) {
-          message.error('部分素材删除失败')
-        }
+    try {
+      const resourcesToDelete = await getResourcesByIds(selectedRowKeys.map((id) => Number(id)))
+      if (resourcesToDelete.length === 0) {
+        message.warning('未找到可删除的素材')
+        return
       }
-    })
+
+      confirmDeleteResources(resourcesToDelete)
+    } catch (error) {
+      console.error('Failed to load resources for deletion:', error)
+      message.error('加载待删除素材失败')
+    }
   }
 
   const handleOpenBatchTagModal = () => {
@@ -710,9 +914,9 @@ export default function ResourcePage() {
         background: 'var(--color-bg-layout)',
         overflow: 'auto'
       }}
-    >
-      <Card variant="borderless" styles={{ body: { padding: '16px' } }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      >
+        <Card variant="borderless" styles={{ body: { padding: '16px' } }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <Space size="middle">
             <h2 style={{ margin: 0, fontSize: 18 }}>素材库</h2>
             <Badge count={pagination.total} color="blue" />
@@ -732,7 +936,13 @@ export default function ResourcePage() {
               style={{ width: 160 }}
               maxTagCount="responsive"
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddLocal} loading={loading}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAddLocal}
+              loading={Boolean(localImportProgress)}
+              disabled={Boolean(localImportProgress)}
+            >
               添加本地素材
             </Button>
             {selectedRowKeys.length > 0 && (
@@ -752,6 +962,51 @@ export default function ResourcePage() {
             )}
           </Space>
         </div>
+
+        {localImportProgress ? (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: '14px 16px',
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, rgba(22,119,255,0.08), rgba(22,119,255,0.02))',
+              border: '1px solid rgba(22,119,255,0.16)'
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 10,
+                flexWrap: 'wrap'
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
+                正在导入本地素材 ({localImportProgress.completed}/{localImportProgress.total})
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-description)' }}>
+                成功 {localImportProgress.success} 个，失败 {localImportProgress.failed} 个
+              </div>
+            </div>
+            <Progress
+              percent={Math.round((localImportProgress.completed / localImportProgress.total) * 100)}
+              status={localImportProgress.failed > 0 ? 'exception' : 'active'}
+              strokeColor={localImportProgress.failed > 0 ? '#faad14' : '#1677ff'}
+              showInfo={false}
+            />
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--color-text-description)',
+                wordBreak: 'break-all'
+              }}
+            >
+              当前文件: {localImportProgress.currentFileName}
+            </div>
+          </div>
+        ) : null}
 
         <Table
           rowSelection={{
