@@ -719,7 +719,6 @@ const LeftSidebar = forwardRef<LeftSidebarRef, LeftSidebarProps>(
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 14px;
           height: 16px;
           opacity: 0;
           transition: opacity 0.2s;
