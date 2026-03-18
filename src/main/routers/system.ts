@@ -1,9 +1,17 @@
 import { publicProcedure, trpc } from '@shared/routers/trpc'
+import { batchVideoProcessSchema } from '@shared/ffmpeg/batch-video'
+import type { BatchVideoProcessStatus } from '@shared/ffmpeg/batch-video'
 import { app, shell, BrowserWindow, dialog, nativeImage } from 'electron'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
-import { captureVideoFrameBase64, inspectLocalMedia } from '../services/ffmpeg'
+import { randomUUID } from 'crypto'
+import {
+  captureVideoFrameBase64,
+  getVideoProcessingCapability,
+  inspectLocalMedia,
+  runBatchVideoProcess
+} from '../services/ffmpeg'
 
 const showOpenDialogSchema = z
   .object({
@@ -49,6 +57,14 @@ const isAllowedExternalUrl = (url: string): boolean => {
 
 const LOCAL_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'])
 const LOCAL_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg'])
+const batchVideoTaskStore = new Map<string, BatchVideoProcessStatus>()
+const BATCH_VIDEO_TASK_TTL_MS = 30 * 60 * 1000
+
+const scheduleBatchVideoTaskCleanup = (taskId: string): void => {
+  setTimeout(() => {
+    batchVideoTaskStore.delete(taskId)
+  }, BATCH_VIDEO_TASK_TTL_MS).unref?.()
+}
 
 export const systemRouter = trpc.router({
   /**
@@ -142,6 +158,80 @@ export const systemRouter = trpc.router({
       cover
     }
   }),
+
+  getVideoProcessingCapability: publicProcedure.query(async () => {
+    return getVideoProcessingCapability()
+  }),
+
+  batchProcessVideo: publicProcedure.input(batchVideoProcessSchema).mutation(async ({ input }) => {
+    const taskId = randomUUID()
+    const capability = await getVideoProcessingCapability()
+    const initialStatus: BatchVideoProcessStatus = {
+      taskId,
+      state: 'pending',
+      outputDir: input.outputDir,
+      totalItems: input.items.length,
+      completedItems: 0,
+      successCount: 0,
+      errorCount: 0,
+      percent: 0,
+      message: '任务已创建，等待 FFmpeg 启动。',
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      results: [],
+      capability
+    }
+
+    batchVideoTaskStore.set(taskId, initialStatus)
+    scheduleBatchVideoTaskCleanup(taskId)
+
+    void runBatchVideoProcess(input, {
+      taskId,
+      capability,
+      onProgress: (status) => {
+        batchVideoTaskStore.set(taskId, status)
+      }
+    }).catch((error) => {
+      const currentStatus = batchVideoTaskStore.get(taskId) || initialStatus
+      batchVideoTaskStore.set(taskId, {
+        ...currentStatus,
+        state: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    })
+
+    return {
+      taskId,
+      status: initialStatus
+    }
+  }),
+
+  getBatchVideoProcessStatus: publicProcedure
+    .input(
+      z.object({
+        taskId: z.string().trim().min(1)
+      })
+    )
+    .query(({ input }) => {
+      const task = batchVideoTaskStore.get(input.taskId)
+      if (!task) {
+        throw new Error('批处理任务不存在或已过期')
+      }
+      return task
+    }),
+
+  clearBatchVideoProcessStatus: publicProcedure
+    .input(
+      z.object({
+        taskId: z.string().trim().min(1)
+      })
+    )
+    .mutation(({ input }) => {
+      batchVideoTaskStore.delete(input.taskId)
+      return { success: true }
+    }),
 
   /**
    * 最小化窗口

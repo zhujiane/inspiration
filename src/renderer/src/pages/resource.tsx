@@ -36,6 +36,7 @@ import type { Tag as ResourceTag } from '@shared/db/tag-schema'
 import { formatDuration, formatSize } from '@shared/utils/format'
 import SmartVideo from '../components/Media/SmartVideo'
 import PreviewModal from '../components/PreviewModal'
+import ResourceBatchVideoModal from '../components/ResourceBatchVideoModal'
 
 const { Search } = Input
 const RESOURCE_LIBRARY_REFRESH_EVENT = 'resource-library:refresh'
@@ -143,9 +144,11 @@ export default function ResourcePage() {
   })
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isBatchTagModalOpen, setIsBatchTagModalOpen] = useState(false)
+  const [isBatchVideoModalOpen, setIsBatchVideoModalOpen] = useState(false)
   const [batchTagSubmitting, setBatchTagSubmitting] = useState(false)
   const [editingResource, setEditingResource] = useState<ResourceRecord | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
+  const [batchVideoResources, setBatchVideoResources] = useState<ResourceRecord[]>([])
   const [form] = Form.useForm()
   const [batchTagForm] = Form.useForm()
   const watchedName = Form.useWatch('name', form)
@@ -356,6 +359,32 @@ export default function ResourcePage() {
     if (selectedRowKeys.length === 0) return
     batchTagForm.setFieldsValue({ tagNames: [] })
     setIsBatchTagModalOpen(true)
+  }
+
+  const handleOpenBatchVideoModal = async () => {
+    if (selectedRowKeys.length === 0) return
+
+    try {
+      const selectedResources = await Promise.all(
+        selectedRowKeys.map((id) =>
+          trpc.resource.get.query({
+            id: Number(id)
+          })
+        )
+      )
+
+      const eligibleCount = selectedResources.filter((item) => item.type === '视频' && item.localPath).length
+      if (eligibleCount === 0) {
+        message.warning('所选素材中没有可处理的本地视频')
+        return
+      }
+
+      setBatchVideoResources(selectedResources as unknown as ResourceRecord[])
+      setIsBatchVideoModalOpen(true)
+    } catch (error) {
+      console.error('Failed to open batch video modal:', error)
+      message.error('加载批量处理素材失败')
+    }
   }
 
   const handleBatchTagSubmit = async () => {
@@ -707,6 +736,11 @@ export default function ResourcePage() {
               添加本地素材
             </Button>
             {selectedRowKeys.length > 0 && (
+              <Button icon={<VideoCameraOutlined />} onClick={handleOpenBatchVideoModal}>
+                视频批量处理 ({selectedRowKeys.length})
+              </Button>
+            )}
+            {selectedRowKeys.length > 0 && (
               <Button icon={<TagsOutlined />} onClick={handleOpenBatchTagModal}>
                 批量加标签 ({selectedRowKeys.length})
               </Button>
@@ -893,6 +927,13 @@ export default function ResourcePage() {
           </div>
         </div>
       </Modal>
+
+      <ResourceBatchVideoModal
+        open={isBatchVideoModalOpen}
+        resources={batchVideoResources}
+        onCancel={() => setIsBatchVideoModalOpen(false)}
+        onRefresh={fetchData}
+      />
 
       <style>{`
         .resource-table__cover-overlay {
