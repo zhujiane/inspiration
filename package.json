@@ -20,7 +20,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "tag:version": "node -e \"const { execSync } = require('node:child_process'); const version = 'v' + require('./package.json').version; try { execSync('git tag -d ' + version, { stdio: 'inherit' }); } catch {} execSync('git tag ' + version, { stdio: 'inherit' }); execSync('git push origin ' + version + ' --force', { stdio: 'inherit' });\"",
+    "tag": "node -e \"const { execSync } = require('node:child_process'); const version = 'v' + require('./package.json').version; try { execSync('git tag -d ' + version, { stdio: 'inherit' }); } catch {} execSync('git tag ' + version, { stdio: 'inherit' }); execSync('git push origin ' + version + ' --force', { stdio: 'inherit' });\"",
     "db:run": "drizzle-kit generate && drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
